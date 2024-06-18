@@ -1,0 +1,34 @@
+extensions:
+  client:
+    endpoints:
+      - wss://cyber-testnet.alt.technology/ws
+  event_bus:
+  eth_api:
+    stale_timeout_seconds: 180 # rotate endpoint if no new blocks for 3 minutes
+  telemetry:
+    provider: none
+  cache:
+    default_ttl_seconds: 60
+    default_size: 500
+  server:
+    port: 8545
+    listen_address: '0.0.0.0'
+    max_connections: 2000
+    max_batch_size: 10
+    cors: all
+  whitelist:
+    eth_call_whitelist:
+      - to: 0x0000000000000000000000000000000000000000
+    raw_tx_whitelist:
+      - from: 0x0000000000000000000000000000000000000000
+middlewares:
+  methods:
+    - whitelist
+    - response
+    - block_tag
+    - cache
+    - upstream
+  subscriptions:
+    - upstream
+
+rpcs: ethereum
