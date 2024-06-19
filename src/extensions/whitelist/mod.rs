@@ -1,10 +1,17 @@
+use alloy_primitives::Address;
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+use std::fmt::Display;
+use crate::utils::ToAddress;
 
 use super::{Extension, ExtensionRegistry};
 
-pub const SEND_RAW: &'static str = "eth_sendRawTransaction";
+// Read rpc.
 pub const ETH_CALL: &'static str = "eth_call";
+
+// Write rpc.
+pub const SEND_RAW_TX: &'static str = "eth_sendRawTransaction";
+pub const SEND_TX: &'static str = "eth_sendTransaction";
 
 pub struct Whitelist {
     pub config: WhitelistConfig,
@@ -13,20 +20,30 @@ pub struct Whitelist {
 /// The address whitelist for `eth_call/eth_sendRawTransaction` rpc.
 #[derive(Deserialize, Debug, Clone)]
 pub struct WhitelistConfig {
+    #[serde(default)]
     pub eth_call_whitelist: Vec<WhiteAddress>,
+    #[serde(default)]
     pub raw_tx_whitelist: Vec<WhiteAddress>,
+    #[serde(default)]
+    pub tx_whitelist: Vec<WhiteAddress>,
 }
 
 impl WhitelistConfig {
     /// Normalize the config name cases.
-    pub fn normalize(&mut self) {
+    pub fn normalize(&mut self) -> anyhow::Result<()> {
         for addr in self.eth_call_whitelist.iter_mut() {
-            addr.normalize();
+            addr.normalize()?;
         }
 
         for addr in self.raw_tx_whitelist.iter_mut() {
-            addr.normalize();
+            addr.normalize()?;
         }
+
+        for addr in self.tx_whitelist.iter_mut() {
+            addr.normalize()?;
+        }
+
+        Ok(())
     }
 }
 
@@ -34,38 +51,9 @@ impl WhitelistConfig {
 #[derive(Deserialize, Debug, Clone)]
 pub struct WhiteAddress {
     /// Should check the address if Some.
-    pub from: Option<String>,
+    pub from: Option<Address>,
     /// Should check the address if Some.
-    pub to: Option<String>,
-}
-
-impl WhiteAddress {
-    /// Normalize the address.
-    pub fn normalize(&mut self) {
-        if let Some(addr) = self.from.as_mut() {
-            *addr = addr.to_lowercase();
-        }
-        if let Some(addr) = self.to.as_mut() {
-            *addr = addr.to_lowercase();
-        }
-    }
-
-    pub fn satisfy_from_address(&self, from: impl AsRef<str>) -> bool {
-        let from = from.as_ref();
-
-        self.from.as_deref() == None || self.from.as_deref() == Some(from)
-    }
-
-    pub fn satisfy_to_address(&self, to: impl AsRef<str>) -> bool {
-        let to = to.as_ref();
-
-        self.to.as_deref() == None || self.to.as_deref() == Some(to)
-    }
-
-    /// Check if this is a white address.
-    pub fn satisfy(&self, from: impl AsRef<str>, to: impl AsRef<str>) -> bool {
-        self.satisfy_from_address(from) && self.satisfy_to_address(to)
-    }
+    pub to: Option<ToAddress>,
 }
 
 impl Whitelist {
@@ -80,7 +68,7 @@ impl Extension for Whitelist {
 
     async fn from_config(config: &Self::Config, _registry: &ExtensionRegistry) -> Result<Self, anyhow::Error> {
         let mut config = config.clone();
-        config.normalize();
+        config.normalize()?;
         Ok(Self::new(config))
     }
 }
