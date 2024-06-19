@@ -12,8 +12,14 @@ methods:
       ttl_seconds: 1
   # Eth namespace (fee market)
   - method: eth_gasPrice
+    cache:
+      size: 1
   - method: eth_blobBaseFee
+    cache:
+      size: 1
   - method: eth_maxPriorityFeePerGas
+    cache:
+      size: 1
   - method: eth_feeHistory
     params:
       - name: blockCount
@@ -216,7 +222,8 @@ methods:
   # Debug namespace (standard)
   - method: debug_getBadBlocks
     cache:
-      size: 0
+      ttl_seconds: 3
+      size: 1
   - method: debug_getRawBlock
     params:
       - name: Block
@@ -254,6 +261,9 @@ methods:
   - method: debug_setHead
   - method: debug_setTrieFlushInterval
   - method: debug_getTrieFlushInterval
+    cache:
+      ttl_seconds: 3
+      size: 1
   # Debug (trace) namespace (Geth-specified)
   - method: debug_intermediateRoots
   - method: debug_standardTraceBlockToFile
@@ -270,19 +280,22 @@ methods:
   # Txpool namespace (Geth-specified)
   - method: txpool_content
     cache:
-      size: 0
+      ttl_seconds: 3
+      size: 1
   - method: txpool_contentFrom
     cache:
-      size: 0
+      ttl_seconds: 3
     params:
       - name: Address
         ty: Bytes
   - method: txpool_inspect
     cache:
-      size: 0
+      ttl_seconds: 3
+      size: 1
   - method: txpool_status
     cache:
-      size: 0
+      ttl_seconds: 3
+      size: 1
 
   # Net namespace (Geth-specified)
   - method: net_listening

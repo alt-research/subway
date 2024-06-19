@@ -12,8 +12,14 @@ methods:
       ttl_seconds: 1
   # Eth namespace (fee market)
   - method: eth_gasPrice
+    cache:
+      size: 1
   - method: eth_blobBaseFee
+    cache:
+      size: 1
   - method: eth_maxPriorityFeePerGas
+    cache:
+      size: 1
   - method: eth_feeHistory
     params:
       - name: blockCount
@@ -216,7 +222,8 @@ methods:
   # Debug namespace (standard)
   - method: debug_getBadBlocks
     cache:
-      size: 0
+      ttl_seconds: 3
+      size: 1
   - method: debug_getRawBlock
     params:
       - name: Block
