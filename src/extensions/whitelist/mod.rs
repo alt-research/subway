@@ -47,7 +47,6 @@ impl Extension for Whitelist {
     type Config = WhitelistConfig;
 
     async fn from_config(config: &Self::Config, _registry: &ExtensionRegistry) -> Result<Self, anyhow::Error> {
-        let mut config = config.clone();
-        Ok(Self::new(config))
+        Ok(Self::new(config.clone()))
     }
 }
