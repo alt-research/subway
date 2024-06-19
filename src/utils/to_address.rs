@@ -1,7 +1,7 @@
-use std::fmt::Display;
+use crate::extensions::whitelist::WhiteAddress;
 use alloy_primitives::{Address, TxKind};
 use serde::{Deserialize, Deserializer};
-use crate::extensions::whitelist::WhiteAddress;
+use std::fmt::Display;
 
 /// The normalized `to` address:
 /// - Create: this call is contract deploy.
@@ -14,12 +14,14 @@ pub enum ToAddress {
     #[serde(deserialize_with = "deserialize_create")]
     Create,
     Call(Address),
+    // TODO: enable any call but disable create.
+    // AnyCall,
 }
 
 /// Helper function to deserialize boxed blobs
 fn deserialize_create<'de, D>(deserializer: D) -> Result<(), D::Error>
-    where
-        D: Deserializer<'de>,
+where
+    D: Deserializer<'de>,
 {
     let s = <String>::deserialize(deserializer)?;
     if &s == "create" || &s == "Create" {
@@ -29,8 +31,7 @@ fn deserialize_create<'de, D>(deserializer: D) -> Result<(), D::Error>
     }
 }
 
-
-impl Display for crate::extensions::whitelist::ToAddress {
+impl Display for ToAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Create => write!(f, "create"),
@@ -39,13 +40,13 @@ impl Display for crate::extensions::whitelist::ToAddress {
     }
 }
 
-impl From<TxKind> for crate::extensions::whitelist::ToAddress {
+impl From<TxKind> for ToAddress {
     fn from(tx: TxKind) -> Self {
         Self::from(&tx)
     }
 }
 
-impl From<&TxKind> for crate::extensions::whitelist::ToAddress {
+impl From<&TxKind> for ToAddress {
     fn from(tx: &TxKind) -> Self {
         match tx {
             TxKind::Call(addr) => Self::Call(*addr),
@@ -54,42 +55,21 @@ impl From<&TxKind> for crate::extensions::whitelist::ToAddress {
     }
 }
 
-impl From<&Address> for crate::extensions::whitelist::ToAddress {
+impl From<&Address> for ToAddress {
     fn from(to: &Address) -> Self {
         Self::Call(*to)
     }
 }
 
-impl From<Address> for crate::extensions::whitelist::ToAddress {
+impl From<Address> for ToAddress {
     fn from(to: Address) -> Self {
         Self::from(&to)
     }
 }
 
 impl WhiteAddress {
-    /// Normalize the address.
-    pub fn normalize(&mut self) -> anyhow::Result<()> {
-        println!("white address: {:?}", self);
-        // if let Some(addr) = self.from.as_mut() {
-        //     let normalized = addr.to_lowercase();
-        //     if normalized.len() != 42 {
-        //         bail!("Illegal `from` address: {}", addr)
-        //     }
-        //     *addr = normalized
-        // }
-        // if let Some(addr) = self.to.as_mut() {
-        //     let normalized = addr.to_lowercase();
-        //     if normalized.len() != 42 || normalized != "create" {
-        //         bail!("Illegal `to` address: {}", addr)
-        //     }
-        //     *addr = normalized;
-        // }
-
-        Ok(())
-    }
-
     /// Check if this is a white address.
-    pub fn satisfy(&self, from: &Address, to: &crate::extensions::whitelist::ToAddress) -> bool {
+    pub fn satisfy(&self, from: &Address, to: &ToAddress) -> bool {
         self.satisfy_from_address(from) && self.satisfy_to_address(to)
     }
 
@@ -97,7 +77,7 @@ impl WhiteAddress {
         self.from == None || self.from.as_ref() == Some(from)
     }
 
-    pub fn satisfy_to_address(&self, to: &crate::extensions::whitelist::ToAddress) -> bool {
+    pub fn satisfy_to_address(&self, to: &ToAddress) -> bool {
         self.to == None || self.to.as_ref() == Some(to)
     }
 }

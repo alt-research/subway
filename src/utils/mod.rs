@@ -1,10 +1,10 @@
 mod cache;
-mod type_registry;
 mod to_address;
+mod type_registry;
 
 pub use cache::*;
-pub use type_registry::*;
 pub use to_address::*;
+pub use type_registry::*;
 
 pub mod errors {
     use jsonrpsee::types::{

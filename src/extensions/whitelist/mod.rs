@@ -1,8 +1,7 @@
+use crate::utils::ToAddress;
 use alloy_primitives::Address;
 use async_trait::async_trait;
-use serde::{Deserialize, Deserializer};
-use std::fmt::Display;
-use crate::utils::ToAddress;
+use serde::Deserialize;
 
 use super::{Extension, ExtensionRegistry};
 
@@ -28,25 +27,6 @@ pub struct WhitelistConfig {
     pub tx_whitelist: Vec<WhiteAddress>,
 }
 
-impl WhitelistConfig {
-    /// Normalize the config name cases.
-    pub fn normalize(&mut self) -> anyhow::Result<()> {
-        for addr in self.eth_call_whitelist.iter_mut() {
-            addr.normalize()?;
-        }
-
-        for addr in self.raw_tx_whitelist.iter_mut() {
-            addr.normalize()?;
-        }
-
-        for addr in self.tx_whitelist.iter_mut() {
-            addr.normalize()?;
-        }
-
-        Ok(())
-    }
-}
-
 /// When an address is None, it means it will satisfy any address.
 #[derive(Deserialize, Debug, Clone)]
 pub struct WhiteAddress {
@@ -68,7 +48,6 @@ impl Extension for Whitelist {
 
     async fn from_config(config: &Self::Config, _registry: &ExtensionRegistry) -> Result<Self, anyhow::Error> {
         let mut config = config.clone();
-        config.normalize()?;
         Ok(Self::new(config))
     }
 }

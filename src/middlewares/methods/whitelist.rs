@@ -8,7 +8,8 @@ use alloy_consensus::{Transaction, TxEip4844Variant, TxEnvelope};
 use alloy_eips::eip2718::Decodable2718;
 use alloy_primitives::{Address, TxKind};
 
-use crate::extensions::whitelist::{WhiteAddress, Whitelist, ETH_CALL, SEND_RAW_TX, SEND_TX, ToAddress};
+use crate::extensions::whitelist::{WhiteAddress, Whitelist, ETH_CALL, SEND_RAW_TX, SEND_TX};
+use crate::utils::ToAddress;
 use crate::{
     middlewares::{CallRequest, CallResult, Middleware, MiddlewareBuilder, NextFn, RpcMethod, TRACER},
     utils::{TypeRegistry, TypeRegistryRef},
@@ -89,7 +90,7 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for WhitelistMiddlewa
 }
 
 /// Extract the address from `eth_call`/`eth_sendTranslation` parameters and convert it into lowercase.
-pub fn extract_address_from_to(params: &[JsonValue]) -> Result<(Address, TxKind), ErrorObjectOwned> {
+pub fn extract_address_from_to(params: &[JsonValue]) -> Result<(Address, ToAddress), ErrorObjectOwned> {
     let p1 = params.get(0).ok_or_else(|| {
         ErrorObjectOwned::borrowed(
             UNKNOWN_ADDRESS,
@@ -106,13 +107,16 @@ pub fn extract_address_from_to(params: &[JsonValue]) -> Result<(Address, TxKind)
         ErrorObjectOwned::borrowed(UNKNOWN_ADDRESS, "Could not parse `from` from rpc parameter", None)
     })?;
 
-    let to = p1.get("to").ok_or_else(|| {
-        ErrorObjectOwned::borrowed(UNKNOWN_ADDRESS, "Could not get the `to` from rpc parameter", None)
-    })?;
-    let to: TxKind = serde_json::from_value(to.clone())
-        .map_err(|_err| ErrorObjectOwned::borrowed(UNKNOWN_ADDRESS, "Could not parse `to` from rpc parameter", None))?;
+    // When not get, it means `Create`.
+    let to = p1.get("to");
+    let to = if let Some(to) = to {
+        serde_json::from_value(to.clone())
+            .map_err(|_err| ErrorObjectOwned::borrowed(UNKNOWN_ADDRESS, "Could not parse `to` from rpc parameter", None))?
+    } else {
+        TxKind::Create
+    };
 
-    Ok((from, to))
+    Ok((from, to.into()))
 }
 
 #[async_trait]
@@ -132,7 +136,6 @@ impl Middleware<CallRequest, CallResult> for WhitelistMiddleware {
             match self.rpc_type {
                 RpcType::EthCall | RpcType::SendTX => {
                     let (from, to) = extract_address_from_to(&request.params)?;
-                    let to = to.into();
                     if !self.satisfy(&from, &to) {
                         return banned_address_call_result(None);
                     }
@@ -152,7 +155,6 @@ impl Middleware<CallRequest, CallResult> for WhitelistMiddleware {
                         .map_err(|_err| ErrorObjectOwned::borrowed(ILLEGAL_TX, "Could not decode the raw txn", None))?;
                     let from = extract_signer_from_tx_envelop(&tx)?;
                     let to = extract_to_address_from_tx_envelop(&tx);
-                    let to = to.into();
                     if !self.satisfy(&from, &to) {
                         return banned_address_call_result(None);
                     }
@@ -184,7 +186,7 @@ fn extract_signer_from_tx_envelop(tx: &TxEnvelope) -> Result<Address, ErrorObjec
 }
 
 #[inline]
-fn extract_to_address_from_tx_envelop(tx: &TxEnvelope) -> TxKind {
+fn extract_to_address_from_tx_envelop(tx: &TxEnvelope) -> ToAddress {
     let to = match tx {
         TxEnvelope::Legacy(tx) => tx.tx().to,
         TxEnvelope::Eip1559(tx) => tx.tx().to,
@@ -198,7 +200,7 @@ fn extract_to_address_from_tx_envelop(tx: &TxEnvelope) -> TxKind {
         }
     };
 
-    to
+    to.into()
 }
 
 pub fn banned_address_call_result(data: Option<&'static RawValue>) -> CallResult {
