@@ -50,7 +50,7 @@ impl WhitelistMiddleware {
         for address in &self.addresses {
             // if satisfy address from/to
             if address.satisfy(from, to) {
-                return true
+                return true;
             }
         }
 
