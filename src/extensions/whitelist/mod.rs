@@ -19,9 +19,9 @@ pub struct Whitelist {
 /// The address whitelist for `eth_call/eth_sendRawTransaction` rpc.
 #[derive(Deserialize, Debug, Clone)]
 pub struct WhitelistConfig {
-    #[serde(default)]
+    #[serde(default, alias = "eth_call")]
     pub eth_call_whitelist: Vec<WhiteAddress>,
-    #[serde(default)]
+    #[serde(default, alias = "tx")]
     pub tx_whitelist: Vec<WhiteAddress>,
 }
 
