@@ -4,13 +4,6 @@ use serde::Deserialize;
 
 use super::{Extension, ExtensionRegistry};
 
-// Read rpc.
-pub const ETH_CALL: &str = "eth_call";
-
-// Write rpc.
-pub const SEND_RAW_TX: &str = "eth_sendRawTransaction";
-pub const SEND_TX: &str = "eth_sendTransaction";
-
 /// The address whitelist for `eth_call/eth_sendRawTransaction` rpc.
 #[derive(Deserialize, Debug, Clone)]
 pub struct WhitelistConfig {
@@ -37,15 +30,12 @@ pub struct BlackList {
     pub config: BlacklistConfig,
 }
 
-
 #[async_trait]
 impl Extension for Whitelist {
     type Config = WhitelistConfig;
 
     async fn from_config(config: &Self::Config, _registry: &ExtensionRegistry) -> Result<Self, anyhow::Error> {
-        Ok(Self {
-            config: config.clone(),
-        })
+        Ok(Self { config: config.clone() })
     }
 }
 
@@ -54,8 +44,6 @@ impl Extension for BlackList {
     type Config = BlacklistConfig;
 
     async fn from_config(config: &Self::Config, _registry: &ExtensionRegistry) -> Result<Self, anyhow::Error> {
-        Ok(Self {
-            config: config.clone(),
-        })
+        Ok(Self { config: config.clone() })
     }
 }

@@ -7,7 +7,7 @@ use alloy_consensus::{Transaction, TxEip4844Variant, TxEnvelope};
 use alloy_eips::eip2718::Decodable2718;
 use alloy_primitives::hex::decode;
 use alloy_primitives::{Address, TxKind};
-use serde::{Serialize};
+use serde::Serialize;
 
 use crate::extensions::list::{BlackList, Whitelist};
 use crate::utils::{AddressRule, ToAddress};
@@ -38,9 +38,8 @@ pub const ETH_CALL: &str = "eth_call";
 pub const SEND_RAW_TX: &str = "eth_sendRawTransaction";
 pub const SEND_TX: &str = "eth_sendTransaction";
 
-
-pub type BlackListMiddleware = ListMiddleware<BlacklistChecker>;
-pub type WhiteListMiddleware = ListMiddleware<WhitelistChecker>;
+pub type BlacklistMiddleware = ListMiddleware<BlacklistChecker>;
+pub type WhitelistMiddleware = ListMiddleware<WhitelistChecker>;
 
 /// This list middleware should be used at the top level whenever possible.
 ///
@@ -72,7 +71,7 @@ pub struct BlacklistChecker {
 }
 
 impl BlacklistChecker {
-    pub fn new( addresses: Vec<AddressRule>) -> Self {
+    pub fn new(addresses: Vec<AddressRule>) -> Self {
         Self {
             // TODO: maybe still need to enable it when empty.
             enabled: !addresses.is_empty(),
@@ -80,7 +79,6 @@ impl BlacklistChecker {
         }
     }
 }
-
 
 impl ItemChecker for BlacklistChecker {
     type Item = (Address, ToAddress);
@@ -108,7 +106,7 @@ pub struct WhitelistChecker {
 }
 
 impl WhitelistChecker {
-    pub fn new( addresses: Vec<AddressRule>) -> Self {
+    pub fn new(addresses: Vec<AddressRule>) -> Self {
         Self {
             // TODO: maybe still need to enable it when empty.
             enabled: !addresses.is_empty(),
@@ -336,10 +334,10 @@ mod tests {
     use super::*;
     use crate::extensions::list::WhitelistConfig;
     use crate::extensions::ExtensionsConfig;
+    use crate::middlewares::methods::list::WhitelistMiddleware;
     use alloy_primitives::{bytes, hex, Bytes};
     use futures_util::FutureExt;
     use serde_json::Value;
-    use crate::middlewares::methods::whitelist::WhitelistMiddleware;
 
     struct Case {
         encoded_tx: Bytes,

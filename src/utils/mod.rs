@@ -1,7 +1,7 @@
+mod address_rule;
 mod cache;
 mod to_address;
 mod type_registry;
-mod address_rule;
 
 pub use address_rule::*;
 pub use cache::*;

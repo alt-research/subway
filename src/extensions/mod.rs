@@ -12,13 +12,13 @@ pub mod api;
 pub mod cache;
 pub mod client;
 pub mod event_bus;
+pub mod list;
 pub mod merge_subscription;
 pub mod prometheus;
 pub mod rate_limit;
 pub mod server;
 pub mod telemetry;
 pub mod validator;
-pub mod list;
 
 #[async_trait]
 pub trait Extension: Sized {

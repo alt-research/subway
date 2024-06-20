@@ -1,6 +1,6 @@
+use crate::utils::ToAddress;
 use alloy_primitives::Address;
 use serde::Deserialize;
-use crate::utils::ToAddress;
 
 /// When an address is None, it means any address.
 #[derive(Deserialize, Debug, Clone)]
