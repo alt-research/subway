@@ -226,6 +226,34 @@ mod tests {
         expected_res: CallResult,
     }
 
+    async fn ensure_pass(middleware: &dyn Middleware<CallRequest, CallResult>, case: Case) {
+        let rlp_hex = hex::encode_prefixed(case.encoded_tx);
+        let req = CallRequest::new("eth_sendRawTransaction", vec![Value::String(rlp_hex)]);
+        let expected_res = case.expected_res.clone();
+        let last = Box::new(move |_, _| async move { expected_res }.boxed());
+
+        let res = middleware.call(req, Default::default(), last);
+        let res = res.await;
+        assert_eq!(res, case.expected_res);
+    }
+
+    async fn create_middleware(
+        rpc_method: RpcMethod,
+        whitelist_config: WhitelistConfig,
+    ) -> Box<dyn Middleware<CallRequest, CallResult>> {
+        let extensions = ExtensionsConfig {
+            whitelist: Some(whitelist_config),
+            ..Default::default()
+        }
+        .create_registry()
+        .await
+        .expect("Failed to create registry");
+
+        let middleware = WhitelistMiddleware::build(&rpc_method, &extensions).await.unwrap();
+
+        middleware
+    }
+
     #[tokio::test]
     #[allow(non_snake_case)]
     async fn eth_sendRawTransaction_should_be_banned() {
@@ -240,22 +268,13 @@ params:
 
         let whitelist_config = r"
     tx_whitelist:
-      # allow 0x01 to call or create in raw tx.
+      # allow 0x01 to call or create in tx.
       - from: 0000000000000000000000000000000000000001
 ";
 
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
         let whitelist_config: WhitelistConfig = serde_yaml::from_reader(&mut whitelist_config.as_bytes()).unwrap();
-
-        let extensions = ExtensionsConfig {
-            whitelist: Some(whitelist_config),
-            ..Default::default()
-        }
-        .create_registry()
-        .await
-        .expect("Failed to create registry");
-
-        let middleware = WhitelistMiddleware::build(&rpc_method, &extensions).await.unwrap();
+        let middleware = create_middleware(rpc_method, whitelist_config).await;
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         let cases = vec![
@@ -266,14 +285,7 @@ params:
         ];
 
         for case in cases {
-            let rlp_hex = hex::encode_prefixed(case.encoded_tx);
-            let req = CallRequest::new("eth_sendRawTransaction", vec![Value::String(rlp_hex)]);
-            let expected_res = case.expected_res.clone();
-            let last = Box::new(move |_, _| async move { expected_res }.boxed());
-
-            let res = middleware.call(req, Default::default(), last);
-            let res = res.await;
-            assert_eq!(res, case.expected_res);
+            ensure_pass(middleware.as_ref(), case).await;
         }
     }
 
@@ -291,22 +303,13 @@ params:
 
         let whitelist_config = r"
     tx_whitelist:
-      # allow 0x1aB49795aE1570b8300E47493E090202b88f8F23 to call or create in raw tx.
+      # allow 0x1aB49795aE1570b8300E47493E090202b88f8F23 to call or create in tx.
       - from: 0x1aB49795aE1570b8300E47493E090202b88f8F23
 ";
 
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
         let whitelist_config: WhitelistConfig = serde_yaml::from_reader(&mut whitelist_config.as_bytes()).unwrap();
-
-        let extensions = ExtensionsConfig {
-            whitelist: Some(whitelist_config),
-            ..Default::default()
-        }
-        .create_registry()
-        .await
-        .expect("Failed to create registry");
-
-        let middleware = WhitelistMiddleware::build(&rpc_method, &extensions).await.unwrap();
+        let middleware = create_middleware(rpc_method, whitelist_config).await;
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         // the first byte is changed
@@ -325,14 +328,7 @@ params:
         ];
 
         for case in cases {
-            let rlp_hex = hex::encode_prefixed(case.encoded_tx);
-            let req = CallRequest::new("eth_sendRawTransaction", vec![Value::String(rlp_hex)]);
-            let expected_res = case.expected_res.clone();
-            let last = Box::new(move |_, _| async move { expected_res }.boxed());
-
-            let res = middleware.call(req, Default::default(), last);
-            let res = res.await;
-            assert_eq!(res, case.expected_res);
+            ensure_pass(middleware.as_ref(), case).await;
         }
     }
 }
