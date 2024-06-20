@@ -348,12 +348,12 @@ mod tests {
     use super::*;
     use crate::extensions::list::{BlacklistConfig, WhitelistConfig};
     use crate::extensions::ExtensionsConfig;
-    use alloy_primitives::{address, bytes, hex};
+    use alloy_primitives::{address, bytes};
     use futures_util::FutureExt;
-    use serde_json::{json, Value};
+    use serde_json::Value;
 
     struct Case {
-        request: Request,
+        request: CallRequest,
         expected_res: CallResult,
         config: Config,
     }
@@ -364,35 +364,29 @@ mod tests {
         Blacklist(BlacklistConfig),
     }
 
-    #[derive(Debug, Clone)]
-    enum Request {
-        RawTx(CallRequest),
-        Tx(CallRequest),
-        EthCall(CallRequest),
-    }
+    mod request {
+        use crate::middlewares::methods::list::{ETH_CALL, SEND_RAW_TX, SEND_TX};
+        use crate::middlewares::CallRequest;
+        use alloy_primitives::{hex, Address, TxKind};
+        use serde_json::{json, Value};
 
-    impl Request {
-        pub fn raw_tx(encoded_tx: impl AsRef<[u8]>) -> Self {
+        pub fn raw_tx(encoded_tx: impl AsRef<[u8]>) -> CallRequest {
             let rlp_hex = hex::encode_prefixed(encoded_tx);
-            let req = CallRequest::new(SEND_RAW_TX, vec![Value::String(rlp_hex)]);
-
-            Self::RawTx(req)
+            CallRequest::new(SEND_RAW_TX, vec![Value::String(rlp_hex)])
         }
 
-        pub fn tx(from: Address, to: TxKind) -> Self {
-            let req = CallRequest::new(
+        pub fn tx(from: Address, to: TxKind) -> CallRequest {
+            CallRequest::new(
                 SEND_TX,
                 vec![json!( {
                     "from": from,
                     "to": to,
                 })],
-            );
-
-            Self::Tx(req)
+            )
         }
 
-        pub fn tx_with_to(to: TxKind) -> Self {
-            let req = CallRequest::new(
+        pub fn tx_with_to(to: TxKind) -> CallRequest {
+            CallRequest::new(
                 SEND_TX,
                 vec![
                     // missing `from`
@@ -400,33 +394,27 @@ mod tests {
                         "to": to,
                     }),
                 ],
-            );
-
-            Self::Tx(req)
+            )
         }
 
-        pub fn eth_call(from: Address, to: TxKind) -> Self {
-            let req = CallRequest::new(
+        pub fn eth_call(from: Address, to: TxKind) -> CallRequest {
+            CallRequest::new(
                 ETH_CALL,
                 vec![json!( {
                     "from": from,
                     "to": to,
                 })],
-            );
-
-            Self::Tx(req)
+            )
         }
 
-        pub fn eth_call_with_to(to: TxKind) -> Self {
-            let req = CallRequest::new(
+        pub fn eth_call_with_to(to: TxKind) -> CallRequest {
+            CallRequest::new(
                 ETH_CALL,
                 vec![json!( {
                 // missing `from`
                     "to": to,
                 })],
-            );
-
-            Self::EthCall(req)
+            )
         }
     }
 
@@ -437,16 +425,10 @@ mod tests {
                 Config::Whitelist(config) => create_whitelist_middleware(rpc_method, config.clone()).await,
             };
 
-            let req = match self.request.clone() {
-                Request::RawTx(req) => req,
-                Request::Tx(req) => req,
-                Request::EthCall(req) => req,
-            };
-
             let expected_res = self.expected_res.clone();
             let last = Box::new(move |_, _| async move { expected_res }.boxed());
 
-            let res = middleware.call(req, Default::default(), last);
+            let res = middleware.call(self.request.clone(), Default::default(), last);
             let res = res.await;
             assert_eq!(res, self.expected_res, "case num: {}", case_num);
         }
@@ -512,12 +494,12 @@ params:
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         let cases = vec![
             Case {
-                request: Request::raw_tx(&right_tx),
+                request: request::raw_tx(&right_tx),
                 expected_res: Err(err_banned_address()),
                 config: whitelist.clone(),
             },
             Case {
-                request: Request::raw_tx(&right_tx),
+                request: request::raw_tx(&right_tx),
                 expected_res: Ok(Value::String(
                     "0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b".to_string(),
                 )),
@@ -525,17 +507,17 @@ params:
             },
             // banned
             Case {
-                request: Request::raw_tx(&right_tx),
+                request: request::raw_tx(&right_tx),
                 expected_res: Err(err_banned_address()),
                 config: blacklist.clone(),
             },
             Case {
-                request: Request::raw_tx(&failed_tx),
+                request: request::raw_tx(&failed_tx),
                 expected_res: Err(err_failed_decode_txn(&failed_tx)),
                 config: whitelist.clone(),
             },
             Case {
-                request: Request::raw_tx(&failed_tx),
+                request: request::raw_tx(&failed_tx),
                 expected_res: Err(err_failed_decode_txn(&failed_tx)),
                 config: blacklist.clone(),
             },
@@ -576,7 +558,7 @@ params:
         let cases = vec![
             Case {
                 // transfer to self
-                request: Request::tx(
+                request: request::tx(
                     address!("0000000000000000000000000000000000000001"),
                     TxKind::Call(address!("0000000000000000000000000000000000000001")),
                 ),
@@ -586,7 +568,7 @@ params:
             },
             Case {
                 // transfer to self
-                request: Request::tx(
+                request: request::tx(
                     address!("0000000000000000000000000000000000000001"),
                     TxKind::Call(address!("0000000000000000000000000000000000000001")),
                 ),
@@ -596,19 +578,19 @@ params:
             },
             Case {
                 // ban 0x01 everything
-                request: Request::tx(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                request: request::tx(address!("0000000000000000000000000000000000000001"), TxKind::Create),
                 expected_res: Err(err_banned_address()),
                 config: blacklist.clone(),
             },
             Case {
                 // 0x01 pass everything
-                request: Request::tx(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                request: request::tx(address!("0000000000000000000000000000000000000001"), TxKind::Create),
                 expected_res: ok_res.clone(),
                 config: whitelist.clone(),
             },
             Case {
                 // 0x03 could not create but could call
-                request: Request::tx(
+                request: request::tx(
                     address!("0000000000000000000000000000000000000003"),
                     TxKind::Call(address!("0000000000000000000000000000000000000001")),
                 ),
@@ -617,13 +599,13 @@ params:
             },
             Case {
                 // 0x03 could create
-                request: Request::tx(address!("0000000000000000000000000000000000000003"), TxKind::Create),
+                request: request::tx(address!("0000000000000000000000000000000000000003"), TxKind::Create),
                 expected_res: ok_res.clone(),
                 config: whitelist.clone(),
             },
             Case {
                 // missing "from" param.
-                request: Request::tx_with_to(TxKind::Call(address!("0000000000000000000000000000000000000001"))),
+                request: request::tx_with_to(TxKind::Call(address!("0000000000000000000000000000000000000001"))),
                 expected_res: Err(err_unknown_from_address()),
                 config: whitelist.clone(),
             },
@@ -662,7 +644,7 @@ params:
         let cases = vec![
             Case {
                 // transfer to self
-                request: Request::eth_call(
+                request: request::eth_call(
                     address!("0000000000000000000000000000000000000001"),
                     TxKind::Call(address!("0000000000000000000000000000000000000001")),
                 ),
@@ -672,7 +654,7 @@ params:
             },
             Case {
                 // transfer to self
-                request: Request::eth_call(
+                request: request::eth_call(
                     address!("0000000000000000000000000000000000000001"),
                     TxKind::Call(address!("0000000000000000000000000000000000000001")),
                 ),
@@ -682,19 +664,19 @@ params:
             },
             Case {
                 // ban 0x01 everything
-                request: Request::eth_call(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                request: request::eth_call(address!("0000000000000000000000000000000000000001"), TxKind::Create),
                 expected_res: Err(err_banned_address()),
                 config: blacklist.clone(),
             },
             Case {
                 // 0x01 pass everything
-                request: Request::eth_call(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                request: request::eth_call(address!("0000000000000000000000000000000000000001"), TxKind::Create),
                 expected_res: ok_res.clone(),
                 config: whitelist.clone(),
             },
             Case {
                 // 0x03 could not create but could call
-                request: Request::eth_call(
+                request: request::eth_call(
                     address!("0000000000000000000000000000000000000003"),
                     TxKind::Call(address!("0000000000000000000000000000000000000001")),
                 ),
@@ -703,13 +685,13 @@ params:
             },
             Case {
                 // 0x03 could create
-                request: Request::eth_call(address!("0000000000000000000000000000000000000003"), TxKind::Create),
+                request: request::eth_call(address!("0000000000000000000000000000000000000003"), TxKind::Create),
                 expected_res: ok_res.clone(),
                 config: whitelist.clone(),
             },
             Case {
                 // missing "from" param.
-                request: Request::eth_call_with_to(TxKind::Call(address!("0000000000000000000000000000000000000001"))),
+                request: request::eth_call_with_to(TxKind::Call(address!("0000000000000000000000000000000000000001"))),
                 expected_res: Err(err_unknown_from_address()),
                 config: whitelist.clone(),
             },
