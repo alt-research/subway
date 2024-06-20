@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use jsonrpsee::core::JsonValue;
 use jsonrpsee::types::ErrorObjectOwned;
 use opentelemetry::trace::FutureExt;
+use std::fmt::Debug;
 
 use alloy_consensus::{Transaction, TxEip4844Variant, TxEnvelope};
 use alloy_eips::eip2718::Decodable2718;
@@ -44,13 +45,14 @@ pub type WhitelistMiddleware = ListMiddleware<WhitelistChecker>;
 /// This list middleware should be used at the top level whenever possible.
 ///
 /// It could be a whitelist or blacklist middleware.
+#[derive(Debug)]
 pub struct ListMiddleware<T: ItemChecker> {
     rpc_type: RpcType,
     checker: T,
 }
 
 /// An item checker that check if an item is usable.
-pub trait ItemChecker: Send + Sync {
+pub trait ItemChecker: Send + Sync + Debug {
     /// The item type.
     type Item;
 
@@ -67,6 +69,7 @@ pub trait ItemChecker: Send + Sync {
     fn enabled(&self) -> bool;
 }
 
+#[derive(Debug, Clone)]
 pub struct BlacklistChecker {
     addresses: Vec<AddressRule>,
     enabled: bool,
@@ -106,6 +109,7 @@ impl ItemChecker for BlacklistChecker {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct WhitelistChecker {
     addresses: Vec<AddressRule>,
     enabled: bool,
@@ -167,15 +171,15 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for ListMiddleware<Bl
         match method.method.as_str() {
             ETH_CALL => Some(Box::new(Self {
                 rpc_type: RpcType::EthCall,
-                checker: BlacklistChecker::new(list.config.eth_call_whitelist.clone()),
+                checker: BlacklistChecker::new(list.config.eth_call.clone()),
             })),
             SEND_TX => Some(Box::new(Self {
                 rpc_type: RpcType::SendTX,
-                checker: BlacklistChecker::new(list.config.tx_whitelist.clone()),
+                checker: BlacklistChecker::new(list.config.tx.clone()),
             })),
             SEND_RAW_TX => Some(Box::new(Self {
                 rpc_type: RpcType::SendRawTX,
-                checker: BlacklistChecker::new(list.config.tx_whitelist.clone()),
+                checker: BlacklistChecker::new(list.config.tx.clone()),
             })),
             _ => {
                 // other rpc types will skip this middleware.
@@ -200,15 +204,15 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for ListMiddleware<Wh
         match method.method.as_str() {
             ETH_CALL => Some(Box::new(Self {
                 rpc_type: RpcType::EthCall,
-                checker: WhitelistChecker::new(list.config.eth_call_whitelist.clone()),
+                checker: WhitelistChecker::new(list.config.eth_call.clone()),
             })),
             SEND_TX => Some(Box::new(Self {
                 rpc_type: RpcType::SendTX,
-                checker: WhitelistChecker::new(list.config.tx_whitelist.clone()),
+                checker: WhitelistChecker::new(list.config.tx.clone()),
             })),
             SEND_RAW_TX => Some(Box::new(Self {
                 rpc_type: RpcType::SendRawTX,
-                checker: WhitelistChecker::new(list.config.tx_whitelist.clone()),
+                checker: WhitelistChecker::new(list.config.tx.clone()),
             })),
             _ => {
                 // other rpc types will skip this middleware.
@@ -223,9 +227,7 @@ pub fn extract_address_from_to(params: &[JsonValue]) -> Result<(Address, ToAddre
     let p1 = params.first().ok_or_else(err_illegal_rpc_parameter)?;
 
     // `from` must exist.
-    let from = p1.get("from").ok_or_else(|| {
-        ErrorObjectOwned::borrowed(UNKNOWN_ADDRESS, "Could not get the `from` from rpc parameter", None)
-    })?;
+    let from = p1.get("from").ok_or_else(err_unknown_from_address)?;
     let from: Address = serde_json::from_value(from.clone()).map_err(|_err| {
         ErrorObjectOwned::borrowed(UNKNOWN_ADDRESS, "Could not parse `from` from rpc parameter", None)
     })?;
@@ -252,8 +254,7 @@ impl<T: ItemChecker<Item = (Address, ToAddress)>> Middleware<CallRequest, CallRe
         next: NextFn<CallRequest, CallResult>,
     ) -> CallResult {
         async move {
-            // Not enable the list so return directly.
-            if self.checker.enabled() {
+            if !self.checker.enabled() {
                 return next(request, context).await;
             }
 
@@ -338,17 +339,21 @@ pub fn err_failed_decode_hex<S: Serialize>(data: S) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(ILLEGAL_HEX, "Failed to decode the hex", Some(data))
 }
 
+pub fn err_unknown_from_address() -> ErrorObjectOwned {
+    ErrorObjectOwned::borrowed(UNKNOWN_ADDRESS, "Could not get the `from` from rpc parameter", None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::extensions::list::{BlacklistConfig, WhitelistConfig};
     use crate::extensions::ExtensionsConfig;
-    use alloy_primitives::{bytes, hex, Bytes};
+    use alloy_primitives::{address, bytes, hex};
     use futures_util::FutureExt;
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
     struct Case {
-        encoded_tx: Bytes,
+        request: Request,
         expected_res: CallResult,
         config: Config,
     }
@@ -359,21 +364,91 @@ mod tests {
         Blacklist(BlacklistConfig),
     }
 
+    #[derive(Debug, Clone)]
+    enum Request {
+        RawTx(CallRequest),
+        Tx(CallRequest),
+        EthCall(CallRequest),
+    }
+
+    impl Request {
+        pub fn raw_tx(encoded_tx: impl AsRef<[u8]>) -> Self {
+            let rlp_hex = hex::encode_prefixed(encoded_tx);
+            let req = CallRequest::new(SEND_RAW_TX, vec![Value::String(rlp_hex)]);
+
+            Self::RawTx(req)
+        }
+
+        pub fn tx(from: Address, to: TxKind) -> Self {
+            let req = CallRequest::new(
+                SEND_TX,
+                vec![json!( {
+                    "from": from,
+                    "to": to,
+                })],
+            );
+
+            Self::Tx(req)
+        }
+
+        pub fn tx_with_to(to: TxKind) -> Self {
+            let req = CallRequest::new(
+                SEND_TX,
+                vec![
+                    // missing `from`
+                    json!( {
+                        "to": to,
+                    }),
+                ],
+            );
+
+            Self::Tx(req)
+        }
+
+        pub fn eth_call(from: Address, to: TxKind) -> Self {
+            let req = CallRequest::new(
+                ETH_CALL,
+                vec![json!( {
+                    "from": from,
+                    "to": to,
+                })],
+            );
+
+            Self::Tx(req)
+        }
+
+        pub fn eth_call_with_to(to: TxKind) -> Self {
+            let req = CallRequest::new(
+                ETH_CALL,
+                vec![json!( {
+                // missing `from`
+                    "to": to,
+                })],
+            );
+
+            Self::EthCall(req)
+        }
+    }
+
     impl Case {
-        pub async fn assert(&self, rpc_method: &RpcMethod) {
+        pub async fn assert(&self, rpc_method: &RpcMethod, case_num: usize) {
             let middleware = match &self.config {
-                Config::Blacklist(config) => create_blacklist_middleware(&rpc_method, config.clone()).await,
-                Config::Whitelist(config) => create_whitelist_middleware(&rpc_method, config.clone()).await,
+                Config::Blacklist(config) => create_blacklist_middleware(rpc_method, config.clone()).await,
+                Config::Whitelist(config) => create_whitelist_middleware(rpc_method, config.clone()).await,
             };
 
-            let rlp_hex = hex::encode_prefixed(&self.encoded_tx);
-            let req = CallRequest::new("eth_sendRawTransaction", vec![Value::String(rlp_hex)]);
+            let req = match self.request.clone() {
+                Request::RawTx(req) => req,
+                Request::Tx(req) => req,
+                Request::EthCall(req) => req,
+            };
+
             let expected_res = self.expected_res.clone();
             let last = Box::new(move |_, _| async move { expected_res }.boxed());
 
             let res = middleware.call(req, Default::default(), last);
             let res = res.await;
-            assert_eq!(res, self.expected_res);
+            assert_eq!(res, self.expected_res, "case num: {}", case_num);
         }
     }
 
@@ -409,7 +484,7 @@ mod tests {
 
     #[tokio::test]
     #[allow(non_snake_case)]
-    async fn eth_sendRawTransaction_should_be_banned_by_whitelist() {
+    async fn test_eth_sendRawTransaction() {
         let rpc_method = r"
 method: eth_sendRawTransaction
 cache:
@@ -419,96 +494,229 @@ params:
       ty: Bytes
 ";
 
-        let config = r"
-    tx_whitelist:
-      # allow 0x01 to call or create in tx.
-      - from: 0000000000000000000000000000000000000001
-";
-
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
+
+        let config = r"
+    tx:
+      - from: 0000000000000000000000000000000000000001
+      - from: 0x1aB49795aE1570b8300E47493E090202b88f8F23
+";
+        let blacklist = Config::Blacklist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
+        let whitelist = Config::Whitelist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
+
+        // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
+        let right_tx = bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6");
+        // the first byte is changed
+        let failed_tx = bytes!("e8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6");
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         let cases = vec![
             Case {
-                encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
+                request: Request::raw_tx(&right_tx),
                 expected_res: Err(err_banned_address()),
-                config: Config::Whitelist(
-                    serde_yaml::from_reader(&mut config.as_bytes()).unwrap(),
-                )
+                config: whitelist.clone(),
             },
-            // not banned
             Case {
-                encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
-                expected_res: Ok(Value::String("0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b".to_string())),
-                config: Config::Blacklist(
-                    serde_yaml::from_reader(&mut config.as_bytes()).unwrap(),
-                )
+                request: Request::raw_tx(&right_tx),
+                expected_res: Ok(Value::String(
+                    "0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b".to_string(),
+                )),
+                config: whitelist.clone(),
+            },
+            // banned
+            Case {
+                request: Request::raw_tx(&right_tx),
+                expected_res: Err(err_banned_address()),
+                config: blacklist.clone(),
+            },
+            Case {
+                request: Request::raw_tx(&failed_tx),
+                expected_res: Err(err_failed_decode_txn(&failed_tx)),
+                config: whitelist.clone(),
+            },
+            Case {
+                request: Request::raw_tx(&failed_tx),
+                expected_res: Err(err_failed_decode_txn(&failed_tx)),
+                config: blacklist.clone(),
             },
         ];
 
-        for case in cases {
-            case.assert(&rpc_method).await;
+        for (n, case) in cases.iter().enumerate() {
+            case.assert(&rpc_method, n).await;
         }
     }
 
     #[tokio::test]
     #[allow(non_snake_case)]
-    async fn eth_sendRawTransaction_illegal_txn() {
+    async fn test_eth_sendTransaction() {
         let rpc_method = r"
-method: eth_sendRawTransaction
+method: eth_sendTransaction
 cache:
     size: 0
+params:
+    - name: transaction
+      ty: Object
+";
+
+        let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
+
+        let config = r"
+    tx:
+      - from: 0000000000000000000000000000000000000001
+      - from: 0000000000000000000000000000000000000002
+        to:   0000000000000000000000000000000000000003
+      - from: 0000000000000000000000000000000000000003
+        to: Create
+";
+        let blacklist = Config::Blacklist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
+        let whitelist = Config::Whitelist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
+
+        let ok_res = Ok(Value::Null);
+        // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
+        let cases = vec![
+            Case {
+                // transfer to self
+                request: Request::tx(
+                    address!("0000000000000000000000000000000000000001"),
+                    TxKind::Call(address!("0000000000000000000000000000000000000001")),
+                ),
+                // banned
+                expected_res: Err(err_banned_address()),
+                config: blacklist.clone(),
+            },
+            Case {
+                // transfer to self
+                request: Request::tx(
+                    address!("0000000000000000000000000000000000000001"),
+                    TxKind::Call(address!("0000000000000000000000000000000000000001")),
+                ),
+                // whitelisted
+                expected_res: ok_res.clone(),
+                config: whitelist.clone(),
+            },
+            Case {
+                // ban 0x01 everything
+                request: Request::tx(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                expected_res: Err(err_banned_address()),
+                config: blacklist.clone(),
+            },
+            Case {
+                // 0x01 pass everything
+                request: Request::tx(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                expected_res: ok_res.clone(),
+                config: whitelist.clone(),
+            },
+            Case {
+                // 0x03 could not create but could call
+                request: Request::tx(
+                    address!("0000000000000000000000000000000000000003"),
+                    TxKind::Call(address!("0000000000000000000000000000000000000001")),
+                ),
+                expected_res: ok_res.clone(),
+                config: blacklist.clone(),
+            },
+            Case {
+                // 0x03 could create
+                request: Request::tx(address!("0000000000000000000000000000000000000003"), TxKind::Create),
+                expected_res: ok_res.clone(),
+                config: whitelist.clone(),
+            },
+            Case {
+                // missing "from" param.
+                request: Request::tx_with_to(TxKind::Call(address!("0000000000000000000000000000000000000001"))),
+                expected_res: Err(err_unknown_from_address()),
+                config: whitelist.clone(),
+            },
+        ];
+
+        for (n, case) in cases.iter().enumerate() {
+            case.assert(&rpc_method, n).await;
+        }
+    }
+
+    #[tokio::test]
+    #[allow(non_snake_case)]
+    async fn test_eth_call() {
+        let rpc_method = r"
+method: eth_call
 params:
     - name: transaction
       ty: Bytes
 ";
 
-        let config = r"
-    tx_whitelist:
-      # allow 0x1aB49795aE1570b8300E47493E090202b88f8F23 to call or create in tx.
-      - from: 0x1aB49795aE1570b8300E47493E090202b88f8F23
-";
-
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
+
+        let config = r"
+    eth_call:
+      - from: 0000000000000000000000000000000000000001
+      - from: 0000000000000000000000000000000000000002
+        to: 0000000000000000000000000000000000000003
+      - from: 0000000000000000000000000000000000000003
+        to: Create
+";
         let blacklist = Config::Blacklist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
         let whitelist = Config::Whitelist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
 
+        let ok_res = Ok(Value::Null);
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
-        // the first byte is changed
-        let failed_tx = bytes!("e8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6");
-
         let cases = vec![
             Case {
-                encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
-                expected_res: Ok(Value::String("0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b".to_string())),
-                config: Config::Whitelist(
-                    serde_yaml::from_reader(&mut config.as_bytes()).unwrap(),
-                )
-            },
-
-            // banned
-            Case {
-                encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
+                // transfer to self
+                request: Request::eth_call(
+                    address!("0000000000000000000000000000000000000001"),
+                    TxKind::Call(address!("0000000000000000000000000000000000000001")),
+                ),
+                // banned
                 expected_res: Err(err_banned_address()),
                 config: blacklist.clone(),
             },
-
             Case {
-                expected_res: Err(err_failed_decode_txn(&failed_tx)),
-                encoded_tx: failed_tx.clone(),
+                // transfer to self
+                request: Request::eth_call(
+                    address!("0000000000000000000000000000000000000001"),
+                    TxKind::Call(address!("0000000000000000000000000000000000000001")),
+                ),
+                // whitelisted
+                expected_res: ok_res.clone(),
                 config: whitelist.clone(),
-
             },
-
             Case {
-                expected_res: Err(err_failed_decode_txn(&failed_tx)),
-                encoded_tx: failed_tx,
+                // ban 0x01 everything
+                request: Request::eth_call(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                expected_res: Err(err_banned_address()),
+                config: blacklist.clone(),
+            },
+            Case {
+                // 0x01 pass everything
+                request: Request::eth_call(address!("0000000000000000000000000000000000000001"), TxKind::Create),
+                expected_res: ok_res.clone(),
                 config: whitelist.clone(),
-            }
+            },
+            Case {
+                // 0x03 could not create but could call
+                request: Request::eth_call(
+                    address!("0000000000000000000000000000000000000003"),
+                    TxKind::Call(address!("0000000000000000000000000000000000000001")),
+                ),
+                expected_res: ok_res.clone(),
+                config: blacklist.clone(),
+            },
+            Case {
+                // 0x03 could create
+                request: Request::eth_call(address!("0000000000000000000000000000000000000003"), TxKind::Create),
+                expected_res: ok_res.clone(),
+                config: whitelist.clone(),
+            },
+            Case {
+                // missing "from" param.
+                request: Request::eth_call_with_to(TxKind::Call(address!("0000000000000000000000000000000000000001"))),
+                expected_res: Err(err_unknown_from_address()),
+                config: whitelist.clone(),
+            },
         ];
 
-        for case in cases {
-            case.assert(&rpc_method).await;
+        for (n, case) in cases.iter().enumerate() {
+            case.assert(&rpc_method, n).await;
         }
     }
 }

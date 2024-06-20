@@ -7,19 +7,19 @@ use super::{Extension, ExtensionRegistry};
 /// The address whitelist for `eth_call/eth_sendRawTransaction` rpc.
 #[derive(Deserialize, Debug, Clone)]
 pub struct WhitelistConfig {
-    #[serde(default, alias = "eth_call")]
-    pub eth_call_whitelist: Vec<AddressRule>,
-    #[serde(default, alias = "tx")]
-    pub tx_whitelist: Vec<AddressRule>,
+    #[serde(default)]
+    pub eth_call: Vec<AddressRule>,
+    #[serde(default)]
+    pub tx: Vec<AddressRule>,
 }
 
 /// The address blacklist for `eth_call/eth_sendRawTransaction` rpc.
 #[derive(Deserialize, Debug, Clone)]
 pub struct BlacklistConfig {
-    #[serde(default, alias = "eth_call")]
-    pub eth_call_whitelist: Vec<AddressRule>,
-    #[serde(default, alias = "tx")]
-    pub tx_whitelist: Vec<AddressRule>,
+    #[serde(default)]
+    pub eth_call: Vec<AddressRule>,
+    #[serde(default)]
+    pub tx: Vec<AddressRule>,
 }
 
 pub struct Whitelist {
