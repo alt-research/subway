@@ -6,6 +6,7 @@ pub mod response;
 pub mod upstream;
 pub mod validate;
 pub mod whitelist;
+pub mod list;
 
 #[cfg(test)]
 pub mod testing;

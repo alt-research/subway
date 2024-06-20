@@ -7,9 +7,9 @@ use alloy_consensus::{Transaction, TxEip4844Variant, TxEnvelope};
 use alloy_eips::eip2718::Decodable2718;
 use alloy_primitives::hex::decode;
 use alloy_primitives::{Address, TxKind};
-use serde::Serialize;
+use serde::{Serialize};
 
-use crate::extensions::list::{Whitelist, ETH_CALL, SEND_RAW_TX, SEND_TX};
+use crate::extensions::list::{BlackList, Whitelist};
 use crate::utils::{AddressRule, ToAddress};
 use crate::{
     middlewares::{CallRequest, CallResult, Middleware, MiddlewareBuilder, NextFn, RpcMethod, TRACER},
@@ -31,22 +31,97 @@ pub const ILLEGAL_TX_SIGNATURE: i32 = -33003;
 ///The hex could not be decoded.
 pub const ILLEGAL_HEX: i32 = -33004;
 
-/// This whitelist middleware should be used at the top level whenever possible.
-pub struct WhitelistMiddleware {
+// Read rpc.
+pub const ETH_CALL: &str = "eth_call";
+
+// Write rpc.
+pub const SEND_RAW_TX: &str = "eth_sendRawTransaction";
+pub const SEND_TX: &str = "eth_sendTransaction";
+
+
+pub type BlackListMiddleware = ListMiddleware<BlacklistChecker>;
+pub type WhiteListMiddleware = ListMiddleware<WhitelistChecker>;
+
+/// This list middleware should be used at the top level whenever possible.
+///
+/// It could be a whitelist or blacklist middleware.
+pub struct ListMiddleware<T: ItemChecker> {
     rpc_type: RpcType,
+    checker: T,
+}
+
+/// An item checker that check if an item is usable.
+pub trait ItemChecker: Send + Sync {
+    /// The item type.
+    type Item;
+
+    /// Check if the item is usable.
+    ///
+    /// Examples:
+    /// - For whitelist, it returns true when in list.
+    /// - For blacklist, it returns false when in list.
+    fn check(&self, item: &Self::Item) -> bool;
+
+    /// Check if checker is enabled.
+    fn enabled(&self) -> bool;
+}
+
+pub struct BlacklistChecker {
     addresses: Vec<AddressRule>,
+    enabled: bool,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum RpcType {
-    EthCall,
-    SendRawTX,
-    SendTX,
+impl BlacklistChecker {
+    pub fn new( addresses: Vec<AddressRule>) -> Self {
+        Self {
+            // TODO: maybe still need to enable it when empty.
+            enabled: !addresses.is_empty(),
+            addresses,
+        }
+    }
 }
 
-impl WhitelistMiddleware {
-    /// Return true if it's in whitelist.
-    pub fn satisfy(&self, from: &Address, to: &ToAddress) -> bool {
+
+impl ItemChecker for BlacklistChecker {
+    type Item = (Address, ToAddress);
+
+    fn check(&self, item: &Self::Item) -> bool {
+        let (from, to) = item;
+        for address in &self.addresses {
+            // if satisfy address from/to
+            if address.satisfy(from, to) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+pub struct WhitelistChecker {
+    addresses: Vec<AddressRule>,
+    enabled: bool,
+}
+
+impl WhitelistChecker {
+    pub fn new( addresses: Vec<AddressRule>) -> Self {
+        Self {
+            // TODO: maybe still need to enable it when empty.
+            enabled: !addresses.is_empty(),
+            addresses,
+        }
+    }
+}
+
+impl ItemChecker for WhitelistChecker {
+    type Item = (Address, ToAddress);
+
+    fn check(&self, item: &Self::Item) -> bool {
+        let (from, to) = item;
         for address in &self.addresses {
             // if satisfy address from/to
             if address.satisfy(from, to) {
@@ -56,32 +131,76 @@ impl WhitelistMiddleware {
 
         false
     }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum RpcType {
+    EthCall,
+    SendRawTX,
+    SendTX,
 }
 
 #[async_trait]
-impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for WhitelistMiddleware {
+impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for ListMiddleware<BlacklistChecker> {
     async fn build(
         method: &RpcMethod,
         extensions: &TypeRegistryRef,
     ) -> Option<Box<dyn Middleware<CallRequest, CallResult>>> {
-        let whitelist = extensions
+        let list = extensions
             .read()
             .await
-            .get::<Whitelist>()
-            .expect("WhitelistConfig extension not found");
+            .get::<BlackList>()
+            .expect("BlackList extension not found");
 
         match method.method.as_str() {
             ETH_CALL => Some(Box::new(Self {
                 rpc_type: RpcType::EthCall,
-                addresses: whitelist.config.eth_call_whitelist.clone(),
+                checker: BlacklistChecker::new(list.config.eth_call_whitelist.clone()),
             })),
             SEND_TX => Some(Box::new(Self {
                 rpc_type: RpcType::SendTX,
-                addresses: whitelist.config.tx_whitelist.clone(),
+                checker: BlacklistChecker::new(list.config.tx_whitelist.clone()),
             })),
             SEND_RAW_TX => Some(Box::new(Self {
                 rpc_type: RpcType::SendRawTX,
-                addresses: whitelist.config.tx_whitelist.clone(),
+                checker: BlacklistChecker::new(list.config.tx_whitelist.clone()),
+            })),
+            _ => {
+                // other rpc types will skip this middleware.
+                None
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for ListMiddleware<WhitelistChecker> {
+    async fn build(
+        method: &RpcMethod,
+        extensions: &TypeRegistryRef,
+    ) -> Option<Box<dyn Middleware<CallRequest, CallResult>>> {
+        let list = extensions
+            .read()
+            .await
+            .get::<Whitelist>()
+            .expect("Whitelist extension not found");
+
+        match method.method.as_str() {
+            ETH_CALL => Some(Box::new(Self {
+                rpc_type: RpcType::EthCall,
+                checker: WhitelistChecker::new(list.config.eth_call_whitelist.clone()),
+            })),
+            SEND_TX => Some(Box::new(Self {
+                rpc_type: RpcType::SendTX,
+                checker: WhitelistChecker::new(list.config.tx_whitelist.clone()),
+            })),
+            SEND_RAW_TX => Some(Box::new(Self {
+                rpc_type: RpcType::SendRawTX,
+                checker: WhitelistChecker::new(list.config.tx_whitelist.clone()),
             })),
             _ => {
                 // other rpc types will skip this middleware.
@@ -117,7 +236,7 @@ pub fn extract_address_from_to(params: &[JsonValue]) -> Result<(Address, ToAddre
 }
 
 #[async_trait]
-impl Middleware<CallRequest, CallResult> for WhitelistMiddleware {
+impl<T: ItemChecker<Item = (Address, ToAddress)>> Middleware<CallRequest, CallResult> for ListMiddleware<T> {
     async fn call(
         &self,
         request: CallRequest,
@@ -125,15 +244,15 @@ impl Middleware<CallRequest, CallResult> for WhitelistMiddleware {
         next: NextFn<CallRequest, CallResult>,
     ) -> CallResult {
         async move {
-            // Not exist whitelist so return directly.
-            if self.addresses.is_empty() {
+            // Not enable the list so return directly.
+            if self.checker.enabled() {
                 return next(request, context).await;
             }
 
             match self.rpc_type {
                 RpcType::EthCall | RpcType::SendTX => {
                     let (from, to) = extract_address_from_to(&request.params)?;
-                    if !self.satisfy(&from, &to) {
+                    if !self.checker.check(&(from, to)) {
                         return Err(err_banned_address());
                     }
                 }
@@ -148,7 +267,7 @@ impl Middleware<CallRequest, CallResult> for WhitelistMiddleware {
 
                     let from = extract_signer_from_tx_envelop(&tx)?;
                     let to = extract_to_address_from_tx_envelop(&tx);
-                    if !self.satisfy(&from, &to) {
+                    if !self.checker.check(&(from, to)) {
                         return Err(err_banned_address());
                     }
                 }
@@ -220,6 +339,7 @@ mod tests {
     use alloy_primitives::{bytes, hex, Bytes};
     use futures_util::FutureExt;
     use serde_json::Value;
+    use crate::middlewares::methods::whitelist::WhitelistMiddleware;
 
     struct Case {
         encoded_tx: Bytes,
@@ -237,7 +357,7 @@ mod tests {
         assert_eq!(res, case.expected_res);
     }
 
-    async fn create_middleware(
+    async fn create_whitelist_middleware(
         rpc_method: RpcMethod,
         whitelist_config: WhitelistConfig,
     ) -> Box<dyn Middleware<CallRequest, CallResult>> {
@@ -272,7 +392,7 @@ params:
 
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
         let whitelist_config: WhitelistConfig = serde_yaml::from_reader(&mut whitelist_config.as_bytes()).unwrap();
-        let middleware = create_middleware(rpc_method, whitelist_config).await;
+        let middleware = create_whitelist_middleware(rpc_method, whitelist_config).await;
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         let cases = vec![
@@ -307,7 +427,7 @@ params:
 
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
         let whitelist_config: WhitelistConfig = serde_yaml::from_reader(&mut whitelist_config.as_bytes()).unwrap();
-        let middleware = create_middleware(rpc_method, whitelist_config).await;
+        let middleware = create_whitelist_middleware(rpc_method, whitelist_config).await;
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         // the first byte is changed
