@@ -22,8 +22,6 @@ pub struct WhitelistConfig {
     #[serde(default)]
     pub eth_call_whitelist: Vec<WhiteAddress>,
     #[serde(default)]
-    pub raw_tx_whitelist: Vec<WhiteAddress>,
-    #[serde(default)]
     pub tx_whitelist: Vec<WhiteAddress>,
 }
 

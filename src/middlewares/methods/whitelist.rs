@@ -47,16 +47,14 @@ enum RpcType {
 impl WhitelistMiddleware {
     /// Return true if it's in whitelist.
     pub fn satisfy(&self, from: &Address, to: &ToAddress) -> bool {
-        let mut allowed = false;
         for address in &self.addresses {
             // if satisfy address from/to
             if address.satisfy(from, to) {
-                allowed = true;
-                break;
+                return true
             }
         }
 
-        allowed
+        false
     }
 }
 
@@ -83,7 +81,7 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for WhitelistMiddlewa
             })),
             SEND_RAW_TX => Some(Box::new(Self {
                 rpc_type: RpcType::SendRawTX,
-                addresses: whitelist.config.raw_tx_whitelist.clone(),
+                addresses: whitelist.config.tx_whitelist.clone(),
             })),
             _ => {
                 // other rpc types will skip this middleware.
@@ -230,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     #[allow(non_snake_case)]
-    async fn eth_sendRawTransaction_should_work() {
+    async fn eth_sendRawTransaction_should_be_banned() {
         let rpc_method = r"
 method: eth_sendRawTransaction
 cache:
@@ -241,7 +239,7 @@ params:
 ";
 
         let whitelist_config = r"
-    raw_tx_whitelist:
+    tx_whitelist:
       # allow 0x01 to call or create in raw tx.
       - from: 0000000000000000000000000000000000000001
 ";
@@ -292,7 +290,7 @@ params:
 ";
 
         let whitelist_config = r"
-    raw_tx_whitelist:
+    tx_whitelist:
       # allow 0x1aB49795aE1570b8300E47493E090202b88f8F23 to call or create in raw tx.
       - from: 0x1aB49795aE1570b8300E47493E090202b88f8F23
 ";
@@ -311,7 +309,6 @@ params:
         let middleware = WhitelistMiddleware::build(&rpc_method, &extensions).await.unwrap();
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
-
         // the first byte is changed
         let failed_tx = bytes!("e8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6");
 
