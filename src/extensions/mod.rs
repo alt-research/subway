@@ -147,5 +147,5 @@ define_all_extensions! {
     prometheus: prometheus::Prometheus,
     validator: validator::Validator,
     whitelist: list::Whitelist,
-    blocklist: list::BlackList,
+    blacklist: list::BlackList,
 }

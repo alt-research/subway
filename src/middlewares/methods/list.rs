@@ -54,6 +54,8 @@ pub trait ItemChecker: Send + Sync {
     /// The item type.
     type Item;
 
+    fn span_name() -> &'static str;
+
     /// Check if the item is usable.
     ///
     /// Examples:
@@ -82,6 +84,10 @@ impl BlacklistChecker {
 
 impl ItemChecker for BlacklistChecker {
     type Item = (Address, ToAddress);
+
+    fn span_name() -> &'static str {
+        "blacklist"
+    }
 
     fn check(&self, item: &Self::Item) -> bool {
         let (from, to) = item;
@@ -117,6 +123,10 @@ impl WhitelistChecker {
 
 impl ItemChecker for WhitelistChecker {
     type Item = (Address, ToAddress);
+
+    fn span_name() -> &'static str {
+        "whitelist"
+    }
 
     fn check(&self, item: &Self::Item) -> bool {
         let (from, to) = item;
@@ -271,10 +281,9 @@ impl<T: ItemChecker<Item = (Address, ToAddress)>> Middleware<CallRequest, CallRe
                 }
             }
 
-            // pass the whitelist
             next(request, context).await
         }
-        .with_context(TRACER.context("whitelist"))
+        .with_context(TRACER.context(T::span_name()))
         .await
     }
 }
@@ -332,9 +341,8 @@ pub fn err_failed_decode_hex<S: Serialize>(data: S) -> ErrorObjectOwned {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extensions::list::WhitelistConfig;
+    use crate::extensions::list::{BlacklistConfig, WhitelistConfig};
     use crate::extensions::ExtensionsConfig;
-    use crate::middlewares::methods::list::WhitelistMiddleware;
     use alloy_primitives::{bytes, hex, Bytes};
     use futures_util::FutureExt;
     use serde_json::Value;
@@ -342,21 +350,35 @@ mod tests {
     struct Case {
         encoded_tx: Bytes,
         expected_res: CallResult,
+        config: Config,
     }
 
-    async fn ensure_pass(middleware: &dyn Middleware<CallRequest, CallResult>, case: Case) {
-        let rlp_hex = hex::encode_prefixed(case.encoded_tx);
-        let req = CallRequest::new("eth_sendRawTransaction", vec![Value::String(rlp_hex)]);
-        let expected_res = case.expected_res.clone();
-        let last = Box::new(move |_, _| async move { expected_res }.boxed());
+    #[derive(Debug, Clone)]
+    enum Config {
+        Whitelist(WhitelistConfig),
+        Blacklist(BlacklistConfig),
+    }
 
-        let res = middleware.call(req, Default::default(), last);
-        let res = res.await;
-        assert_eq!(res, case.expected_res);
+    impl Case {
+        pub async fn assert(&self, rpc_method: &RpcMethod) {
+            let middleware = match &self.config {
+                Config::Blacklist(config) => create_blacklist_middleware(&rpc_method, config.clone()).await,
+                Config::Whitelist(config) => create_whitelist_middleware(&rpc_method, config.clone()).await,
+            };
+
+            let rlp_hex = hex::encode_prefixed(&self.encoded_tx);
+            let req = CallRequest::new("eth_sendRawTransaction", vec![Value::String(rlp_hex)]);
+            let expected_res = self.expected_res.clone();
+            let last = Box::new(move |_, _| async move { expected_res }.boxed());
+
+            let res = middleware.call(req, Default::default(), last);
+            let res = res.await;
+            assert_eq!(res, self.expected_res);
+        }
     }
 
     async fn create_whitelist_middleware(
-        rpc_method: RpcMethod,
+        rpc_method: &RpcMethod,
         whitelist_config: WhitelistConfig,
     ) -> Box<dyn Middleware<CallRequest, CallResult>> {
         let extensions = ExtensionsConfig {
@@ -367,12 +389,27 @@ mod tests {
         .await
         .expect("Failed to create registry");
 
-        WhitelistMiddleware::build(&rpc_method, &extensions).await.unwrap()
+        WhitelistMiddleware::build(rpc_method, &extensions).await.unwrap()
+    }
+
+    async fn create_blacklist_middleware(
+        rpc_method: &RpcMethod,
+        config: BlacklistConfig,
+    ) -> Box<dyn Middleware<CallRequest, CallResult>> {
+        let extensions = ExtensionsConfig {
+            blacklist: Some(config),
+            ..Default::default()
+        }
+        .create_registry()
+        .await
+        .expect("Failed to create registry");
+
+        BlacklistMiddleware::build(rpc_method, &extensions).await.unwrap()
     }
 
     #[tokio::test]
     #[allow(non_snake_case)]
-    async fn eth_sendRawTransaction_should_be_banned() {
+    async fn eth_sendRawTransaction_should_be_banned_by_whitelist() {
         let rpc_method = r"
 method: eth_sendRawTransaction
 cache:
@@ -382,32 +419,41 @@ params:
       ty: Bytes
 ";
 
-        let whitelist_config = r"
+        let config = r"
     tx_whitelist:
       # allow 0x01 to call or create in tx.
       - from: 0000000000000000000000000000000000000001
 ";
 
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
-        let whitelist_config: WhitelistConfig = serde_yaml::from_reader(&mut whitelist_config.as_bytes()).unwrap();
-        let middleware = create_whitelist_middleware(rpc_method, whitelist_config).await;
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         let cases = vec![
             Case {
                 encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
                 expected_res: Err(err_banned_address()),
+                config: Config::Whitelist(
+                    serde_yaml::from_reader(&mut config.as_bytes()).unwrap(),
+                )
+            },
+            // not banned
+            Case {
+                encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
+                expected_res: Ok(Value::String("0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b".to_string())),
+                config: Config::Blacklist(
+                    serde_yaml::from_reader(&mut config.as_bytes()).unwrap(),
+                )
             },
         ];
 
         for case in cases {
-            ensure_pass(middleware.as_ref(), case).await;
+            case.assert(&rpc_method).await;
         }
     }
 
     #[tokio::test]
     #[allow(non_snake_case)]
-    async fn eth_sendRawTransaction_codec() {
+    async fn eth_sendRawTransaction_illegal_txn() {
         let rpc_method = r"
 method: eth_sendRawTransaction
 cache:
@@ -417,15 +463,15 @@ params:
       ty: Bytes
 ";
 
-        let whitelist_config = r"
+        let config = r"
     tx_whitelist:
       # allow 0x1aB49795aE1570b8300E47493E090202b88f8F23 to call or create in tx.
       - from: 0x1aB49795aE1570b8300E47493E090202b88f8F23
 ";
 
         let rpc_method: RpcMethod = serde_yaml::from_reader(&mut rpc_method.as_bytes()).unwrap();
-        let whitelist_config: WhitelistConfig = serde_yaml::from_reader(&mut whitelist_config.as_bytes()).unwrap();
-        let middleware = create_whitelist_middleware(rpc_method, whitelist_config).await;
+        let blacklist = Config::Blacklist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
+        let whitelist = Config::Whitelist(serde_yaml::from_reader(&mut config.as_bytes()).unwrap());
 
         // See https://optimistic.etherscan.io/tx/0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b
         // the first byte is changed
@@ -435,16 +481,34 @@ params:
             Case {
                 encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
                 expected_res: Ok(Value::String("0x664c3d2e1ac8b9db3038e7dbdb7402cb4105635e4b8b312f46e363239816d42b".to_string())),
+                config: Config::Whitelist(
+                    serde_yaml::from_reader(&mut config.as_bytes()).unwrap(),
+                )
+            },
+
+            // banned
+            Case {
+                encoded_tx: bytes!("f8aa8208da840393870082fde8940b2c639c533813f4aa9d7837caf62653d097ff8580b844a9059cbb00000000000000000000000026295137fbbd6fa569a844cdb20faea641577b2600000000000000000000000000000000000000000000000000000000000014d738a0fb193ba0e74178ab45cb7fbbce04d785b2be62c6bec9e7e23e7768a501a9c987a06ddef3b059fc47fd17acc83fa32ce6b0172f34e45a53c06bdaf239ec5b3fe5a6"),
+                expected_res: Err(err_banned_address()),
+                config: blacklist.clone(),
+            },
+
+            Case {
+                expected_res: Err(err_failed_decode_txn(&failed_tx)),
+                encoded_tx: failed_tx.clone(),
+                config: whitelist.clone(),
+
             },
 
             Case {
                 expected_res: Err(err_failed_decode_txn(&failed_tx)),
                 encoded_tx: failed_tx,
+                config: whitelist.clone(),
             }
         ];
 
         for case in cases {
-            ensure_pass(middleware.as_ref(), case).await;
+            case.assert(&rpc_method).await;
         }
     }
 }

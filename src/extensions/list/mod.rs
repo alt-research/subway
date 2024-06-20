@@ -13,7 +13,7 @@ pub struct WhitelistConfig {
     pub tx_whitelist: Vec<AddressRule>,
 }
 
-/// The address whitelist for `eth_call/eth_sendRawTransaction` rpc.
+/// The address blacklist for `eth_call/eth_sendRawTransaction` rpc.
 #[derive(Deserialize, Debug, Clone)]
 pub struct BlacklistConfig {
     #[serde(default, alias = "eth_call")]
