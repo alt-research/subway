@@ -1,12 +1,11 @@
-name: Test
+name: Lint
 
 on:
   push:
-    branches: ["master", "develop"]
+    branches: ["master"]
     paths-ignore:
       - "**/README.md"
   pull_request:
-    branches: ["master", "develop"]
     paths-ignore:
       - "**/README.md"
 
@@ -20,23 +19,23 @@ env:
   SCCACHE_GHA_ENABLED: true
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Cache cargo registry  & git sources
+      - name: Cache cargo registry & git sources
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/
             ~/.cargo/git/db/
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-            ${{ runner.os }}-cargo-test-
+            ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+            ${{ runner.os }}-cargo-lint-
             ${{ runner.os }}-cargo-
 
       - name: Run sccache
@@ -48,5 +47,8 @@ jobs:
           toolchain: 1.78.0
           components: rustfmt, clippy
 
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Check format
+        run: cargo fmt --all -- --check
+
+      - name: Check clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
