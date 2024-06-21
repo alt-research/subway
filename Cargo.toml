@@ -49,8 +49,8 @@ tracing-serde = "0.1.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 # Alloy
-alloy-eips = { version = "0.1.1" }
 alloy-consensus = { version = "0.1.1", features = ["k256", "serde"] }
+alloy-eips = { version = "0.1.1" }
 alloy-primitives = { version = "0.7.6", features = ["serde"] }
 
 [dev-dependencies]
