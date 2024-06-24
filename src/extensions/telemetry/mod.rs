@@ -2,8 +2,8 @@ use std::env;
 
 use async_trait::async_trait;
 use opentelemetry::{global, trace::TraceError};
-use opentelemetry_sdk::trace::Tracer;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace::Tracer;
 use serde::Deserialize;
 
 use super::{Extension, ExtensionRegistry};
@@ -70,10 +70,12 @@ pub fn setup_telemetry(options: &TelemetryConfig) -> Result<Option<Tracer>, Trac
                 exporter = exporter.with_endpoint(agent_endpoint.clone());
             }
 
-            let tracer = tracer.with_exporter(exporter).install_batch(opentelemetry_sdk::runtime::Tokio)?;
+            let tracer = tracer
+                .with_exporter(exporter)
+                .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
             Some(tracer)
-        },
+        }
         TelemetryProvider::Jaeger => {
             #[allow(deprecated)]
             let mut tracer = opentelemetry_jaeger::new_agent_pipeline().with_service_name(service_name);
