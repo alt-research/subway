@@ -54,6 +54,7 @@ governor = { path = "./vendor/governor/governor" }
 alloy-eips = { version = "0.1.1" }
 alloy-consensus = { version = "0.1.1", features = ["k256", "serde"] }
 alloy-primitives = { version = "0.7.6", features = ["serde"] }
+opentelemetry-otlp = "0.16.0"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["async_tokio", "html_reports"] }
