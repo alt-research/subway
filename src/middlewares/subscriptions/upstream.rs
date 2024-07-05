@@ -3,6 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use jsonrpsee::SubscriptionMessage;
 use opentelemetry::trace::FutureExt;
+use opentelemetry::KeyValue;
 
 use crate::{
     extensions::client::Client,
@@ -45,6 +46,9 @@ impl Middleware<SubscriptionRequest, SubscriptionResult> for UpstreamMiddleware 
         _context: TypeRegistry,
         _next: NextFn<SubscriptionRequest, SubscriptionResult>,
     ) -> SubscriptionResult {
+        let subscribe_name = request.subscribe.clone();
+        let subscribe_params = serde_json::to_string(&request.params).expect("serialize JSON value shouldn't be fail");
+
         async move {
             let SubscriptionRequest {
                 subscribe,
@@ -115,7 +119,13 @@ impl Middleware<SubscriptionRequest, SubscriptionResult> for UpstreamMiddleware 
 
             Ok(())
         }
-        .with_context(TRACER.context("upstream"))
+        .with_context(TRACER.context_with_attrs(
+            "upstream",
+            [
+                KeyValue::new("subscribe", subscribe_name),
+                KeyValue::new("params", subscribe_params),
+            ],
+        ))
         .await
     }
 }

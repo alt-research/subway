@@ -17,7 +17,7 @@ use jsonrpsee::{
     },
     ws_client::{WsClient, WsClientBuilder},
 };
-use opentelemetry::{trace::FutureExt, KeyValue};
+use opentelemetry::trace::FutureExt;
 use rand::{seq::SliceRandom, thread_rng};
 use serde::Deserialize;
 use tokio::sync::Notify;
@@ -431,7 +431,6 @@ impl Client {
     }
 
     pub async fn request(&self, method: &str, params: Vec<JsonValue>) -> CallResult {
-        let params_value = serde_json::to_string(&params).expect("serialize JSON value shouldn't be fail");
         async move {
             let (tx, rx) = tokio::sync::oneshot::channel();
             self.sender
@@ -446,7 +445,7 @@ impl Client {
 
             rx.await.map_err(errors::internal_error)?.map_err(errors::map_error)
         }
-        .with_context(TRACER.context_with_attrs(method.to_string(), [KeyValue::new("params", params_value)]))
+        .with_context(TRACER.context("client"))
         .await
     }
 
@@ -471,7 +470,7 @@ impl Client {
 
             rx.await.map_err(errors::internal_error)?
         }
-        .with_context(TRACER.context(subscribe.to_string()))
+        .with_context(TRACER.context("client"))
         .await
     }
 
