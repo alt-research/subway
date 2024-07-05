@@ -114,19 +114,12 @@ impl Middleware<CallRequest, CallResult> for BlockTagMiddleware {
         context: TypeRegistry,
         next: NextFn<CallRequest, CallResult>,
     ) -> CallResult {
-        let request_methods = request.method.clone();
         let request_params = serde_json::to_string(&request.params).expect("serialize JSON value shouldn't be fail");
         async move {
             let (request, context) = self.replace(request, context).await;
             next(request, context).await
         }
-        .with_context(TRACER.context_with_attrs(
-            "block_tag",
-            [
-                KeyValue::new("method", request_methods),
-                KeyValue::new("params", request_params),
-            ],
-        ))
+        .with_context(TRACER.context_with_attrs("block_tag", [KeyValue::new("params", request_params)]))
         .await
     }
 }

@@ -46,7 +46,6 @@ impl Middleware<SubscriptionRequest, SubscriptionResult> for UpstreamMiddleware 
         _context: TypeRegistry,
         _next: NextFn<SubscriptionRequest, SubscriptionResult>,
     ) -> SubscriptionResult {
-        let subscribe_name = request.subscribe.clone();
         let subscribe_params = serde_json::to_string(&request.params).expect("serialize JSON value shouldn't be fail");
 
         async move {
@@ -119,13 +118,7 @@ impl Middleware<SubscriptionRequest, SubscriptionResult> for UpstreamMiddleware 
 
             Ok(())
         }
-        .with_context(TRACER.context_with_attrs(
-            "upstream",
-            [
-                KeyValue::new("subscribe", subscribe_name),
-                KeyValue::new("params", subscribe_params),
-            ],
-        ))
+        .with_context(TRACER.context_with_attrs("upstream", [KeyValue::new("params", subscribe_params)]))
         .await
     }
 }
