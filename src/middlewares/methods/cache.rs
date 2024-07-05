@@ -106,7 +106,7 @@ impl Middleware<CallRequest, CallResult> for CacheMiddleware {
 
             result
         }
-        .with_context(TRACER.context_with_attrs("cache", [KeyValue::new("bypass", bypass_cache)]))
+        .with_context(TRACER.context_with_attrs("cache", [KeyValue::new("hit", !bypass_cache)]))
         .await
     }
 }
