@@ -10,7 +10,6 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::TryFutureExt;
 use garde::Validate;
-use jsonrpc_http_server::jsonrpc_core::params;
 use jsonrpsee::{
     core::{
         client::{ClientT, Error, Subscription, SubscriptionClientT},
