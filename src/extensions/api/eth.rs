@@ -15,7 +15,7 @@ use crate::extensions::{
 pub struct EthApi {
     inner: BaseApi,
     stale_timeout: Duration,
-    finalized_interval: Duration,
+    finalized_interval: Option<Duration>,
     background_tasks: Vec<JoinHandle<()>>,
 }
 
@@ -28,7 +28,7 @@ impl Drop for EthApi {
 #[derive(Deserialize, Debug)]
 pub struct EthApiConfig {
     pub stale_timeout_seconds: u64,
-    pub finalized_interval_seconds: u64,
+    pub finalized_interval_seconds: Option<u64>,
 }
 
 #[async_trait]
@@ -41,13 +41,13 @@ impl Extension for EthApi {
         Ok(Self::new(
             client,
             Duration::from_secs(config.stale_timeout_seconds),
-            Duration::from_secs(config.finalized_interval_seconds),
+            config.finalized_interval_seconds.map(Duration::from_secs),
         ))
     }
 }
 
 impl EthApi {
-    pub fn new(client: Arc<Client>, stale_timeout: Duration, finalized_interval: Duration) -> Self {
+    pub fn new(client: Arc<Client>, stale_timeout: Duration, finalized_interval: Option<Duration>) -> Self {
         let (head_tx, head_rx) = watch::channel::<Option<(JsonValue, u64)>>(None);
         let (finalized_head_tx, finalized_head_rx) = watch::channel::<Option<(JsonValue, u64)>>(None);
 
@@ -86,7 +86,6 @@ impl EthApi {
         finalized_head_tx: watch::Sender<Option<(JsonValue, u64)>>,
     ) {
         let stale_timeout = self.stale_timeout;
-        let finalized_interval = self.finalized_interval;
 
         let client2 = client.clone();
         self.background_tasks.push(tokio::spawn(async move {
@@ -151,75 +150,74 @@ impl EthApi {
             }
         }));
 
-        let client2 = client.clone();
-        let finalized_head_tx2 = finalized_head_tx.clone();
-        self.background_tasks.push(tokio::spawn(async move {
-            let client = client2.clone();
-            let finalized_head_tx = finalized_head_tx2.clone();
+        if let Some(finalized_interval) = self.finalized_interval {
+            self.background_tasks.push(tokio::spawn(async move {
+                let client = client.clone();
 
-            loop {
-                let run = async {
-                    // query finalized head
-                    let finalized_head = client
-                        .request("eth_getBlockByNumber", vec!["finalized".into(), false.into()])
-                        .await?;
-                    let number = super::get_number(&finalized_head)?;
-                    let hash = super::get_hash(&finalized_head)?;
+                loop {
+                    let run = async {
+                        // query finalized head
+                        let finalized_head = client
+                            .request("eth_getBlockByNumber", vec!["finalized".into(), false.into()])
+                            .await?;
+                        let number = super::get_number(&finalized_head)?;
+                        let hash = super::get_hash(&finalized_head)?;
 
-                    tracing::debug!("New finalized head: {number} {hash}");
-                    finalized_head_tx.send_replace(Some((hash, number)));
+                        tracing::debug!("New finalized head: {number} {hash}");
+                        finalized_head_tx.send_replace(Some((hash, number)));
 
-                    loop {
-                        let stream = stream::unfold((), |_| async {
-                            tokio::time::sleep(finalized_interval).await;
-                            let finalized_head = client
-                                .request("eth_getBlockByNumber", vec!["finalized".into(), false.into()])
-                                .await;
-                            Some((finalized_head, ()))
-                        });
+                        loop {
+                            let stream = stream::unfold((), |_| async {
+                                tokio::time::sleep(finalized_interval).await;
+                                let finalized_head = client
+                                    .request("eth_getBlockByNumber", vec!["finalized".into(), false.into()])
+                                    .await;
+                                Some((finalized_head, ()))
+                            });
 
-                        tokio::pin!(stream);
+                            tokio::pin!(stream);
 
-                        tokio::select! {
-                            val = stream.next() => {
-                                if let Some(Ok(val)) = val {
-                                    let number = super::get_number(&val)?;
-                                    let hash = super::get_hash(&val)?;
+                            tokio::select! {
+                                val = stream.next() => {
+                                    if let Some(Ok(val)) = val {
+                                        let number = super::get_number(&val)?;
+                                        let hash = super::get_hash(&val)?;
 
-                                    if let Err(e) = super::validate_new_head(&finalized_head_tx, number, &hash)
-                                    {
-                                        tracing::error!("Error in background task: {e}");
-                                        client.rotate_endpoint().await;
+                                        if let Err(e) = super::validate_new_head(&finalized_head_tx, number, &hash)
+                                        {
+                                            tracing::error!("Error in background task: {e}");
+                                            client.rotate_endpoint().await;
+                                            break;
+                                        }
+
+                                        tracing::debug!("New finalized head: {number} {hash}");
+                                        finalized_head_tx.send_replace(Some((hash, number)));
+                                    } else {
                                         break;
                                     }
-
-                                    tracing::debug!("New finalized head: {number} {hash}");
-                                    finalized_head_tx.send_replace(Some((hash, number)));
-                                } else {
+                                }
+                                _ = client.on_rotation() => {
+                                    // endpoint is rotated, break the loop and restart to get finalized heads
                                     break;
                                 }
                             }
-                            _ = client.on_rotation() => {
-                                // endpoint is rotated, break the loop and restart to get finalized heads
-                                break;
-                            }
                         }
+
+                        Ok::<(), anyhow::Error>(())
+                    };
+
+                    if let Err(e) = run.await {
+                        // cannot figure out finalized head
+                        finalized_head_tx.send_replace(None);
+                        tracing::error!("Error in background task: {e}");
                     }
-
-                    Ok::<(), anyhow::Error>(())
-                };
-
-                if let Err(e) = run.await {
-                    // cannot figure out finalized head
-                    finalized_head_tx.send_replace(None);
-                    tracing::error!("Error in background task: {e}");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        }));
+            }));
+            return;
+        }
 
         // Most eth clients do not support the `newFinalizedHeads` subscription.
-        let client = client.clone();
         self.background_tasks.push(tokio::spawn(async move {
             let client = client.clone();
 
