@@ -151,9 +151,11 @@ impl EthApi {
             }
         }));
 
-        let client = client.clone();
+        let client2 = client.clone();
+        let finalized_head_tx2 = finalized_head_tx.clone();
         self.background_tasks.push(tokio::spawn(async move {
-            let client = client.clone();
+            let client = client2.clone();
+            let finalized_head_tx = finalized_head_tx2.clone();
 
             loop {
                 let run = async {
@@ -198,7 +200,7 @@ impl EthApi {
                                 }
                             }
                             _ = client.on_rotation() => {
-                                // endpoint is rotated, break the loop and restart subscription
+                                // endpoint is rotated, break the loop and restart to get finalized heads
                                 break;
                             }
                         }
@@ -217,7 +219,6 @@ impl EthApi {
         }));
 
         // Most eth clients do not support the `newFinalizedHeads` subscription.
-        /*
         let client = client.clone();
         self.background_tasks.push(tokio::spawn(async move {
             let client = client.clone();
@@ -272,6 +273,5 @@ impl EthApi {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }));
-        */
     }
 }
