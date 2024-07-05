@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use jsonrpsee::core::JsonValue;
 use serde::Deserialize;
 use tokio::{sync::watch, task::JoinHandle};
@@ -14,6 +15,7 @@ use crate::extensions::{
 pub struct EthApi {
     inner: BaseApi,
     stale_timeout: Duration,
+    finalized_interval: Duration,
     background_tasks: Vec<JoinHandle<()>>,
 }
 
@@ -26,6 +28,7 @@ impl Drop for EthApi {
 #[derive(Deserialize, Debug)]
 pub struct EthApiConfig {
     pub stale_timeout_seconds: u64,
+    pub finalized_interval_seconds: u64,
 }
 
 #[async_trait]
@@ -35,18 +38,23 @@ impl Extension for EthApi {
     async fn from_config(config: &Self::Config, registry: &ExtensionRegistry) -> Result<Self, anyhow::Error> {
         let client = registry.get::<Client>().await.expect("Client not found");
 
-        Ok(Self::new(client, Duration::from_secs(config.stale_timeout_seconds)))
+        Ok(Self::new(
+            client,
+            Duration::from_secs(config.stale_timeout_seconds),
+            Duration::from_secs(config.finalized_interval_seconds),
+        ))
     }
 }
 
 impl EthApi {
-    pub fn new(client: Arc<Client>, stale_timeout: Duration) -> Self {
+    pub fn new(client: Arc<Client>, stale_timeout: Duration, finalized_interval: Duration) -> Self {
         let (head_tx, head_rx) = watch::channel::<Option<(JsonValue, u64)>>(None);
         let (finalized_head_tx, finalized_head_rx) = watch::channel::<Option<(JsonValue, u64)>>(None);
 
         let mut this = Self {
             inner: BaseApi::new(head_rx, finalized_head_rx),
             stale_timeout,
+            finalized_interval,
             background_tasks: Vec::new(),
         };
 
@@ -78,6 +86,7 @@ impl EthApi {
         finalized_head_tx: watch::Sender<Option<(JsonValue, u64)>>,
     ) {
         let stale_timeout = self.stale_timeout;
+        let finalized_interval = self.finalized_interval;
 
         let client2 = client.clone();
         self.background_tasks.push(tokio::spawn(async move {
@@ -148,6 +157,73 @@ impl EthApi {
 
             loop {
                 let run = async {
+                    // query finalized head
+                    let finalized_head = client
+                        .request("eth_getBlockByNumber", vec!["finalized".into(), false.into()])
+                        .await?;
+                    let number = super::get_number(&finalized_head)?;
+                    let hash = super::get_hash(&finalized_head)?;
+
+                    tracing::debug!("New finalized head: {number} {hash}");
+                    finalized_head_tx.send_replace(Some((hash, number)));
+
+                    loop {
+                        let stream = stream::unfold((), |_| async {
+                            tokio::time::sleep(finalized_interval).await;
+                            let finalized_head = client
+                                .request("eth_getBlockByNumber", vec!["finalized".into(), false.into()])
+                                .await;
+                            Some((finalized_head, ()))
+                        });
+
+                        tokio::pin!(stream);
+
+                        tokio::select! {
+                            val = stream.next() => {
+                                if let Some(Ok(val)) = val {
+                                    let number = super::get_number(&val)?;
+                                    let hash = super::get_hash(&val)?;
+
+                                    if let Err(e) = super::validate_new_head(&finalized_head_tx, number, &hash)
+                                    {
+                                        tracing::error!("Error in background task: {e}");
+                                        client.rotate_endpoint().await;
+                                        break;
+                                    }
+
+                                    tracing::debug!("New finalized head: {number} {hash}");
+                                    finalized_head_tx.send_replace(Some((hash, number)));
+                                } else {
+                                    break;
+                                }
+                            }
+                            _ = client.on_rotation() => {
+                                // endpoint is rotated, break the loop and restart subscription
+                                break;
+                            }
+                        }
+                    }
+
+                    Ok::<(), anyhow::Error>(())
+                };
+
+                if let Err(e) = run.await {
+                    // cannot figure out finalized head
+                    finalized_head_tx.send_replace(None);
+                    tracing::error!("Error in background task: {e}");
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }));
+
+        // Most eth clients do not support the `newFinalizedHeads` subscription.
+        /*
+        let client = client.clone();
+        self.background_tasks.push(tokio::spawn(async move {
+            let client = client.clone();
+
+            loop {
+                let run = async {
                     let mut sub = client
                         .subscribe("eth_subscribe", ["newFinalizedHeads".into()].into(), "eth_unsubscribe")
                         .await?;
@@ -196,5 +272,6 @@ impl EthApi {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }));
+        */
     }
 }
