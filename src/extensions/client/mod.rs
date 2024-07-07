@@ -17,8 +17,7 @@ use jsonrpsee::{
     },
     ws_client::{WsClient, WsClientBuilder},
 };
-use opentelemetry::trace::FutureExt;
-use opentelemetry::KeyValue;
+use opentelemetry::{trace::FutureExt, KeyValue};
 use rand::{seq::SliceRandom, thread_rng};
 use serde::Deserialize;
 use tokio::sync::Notify;
