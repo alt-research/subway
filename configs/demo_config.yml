@@ -1,12 +1,13 @@
 extensions:
   client:
     endpoints:
-      - wss://op-demo.alt.technology/ws
+      - ws://127.0.0.1:8546
   eth_api:
     stale_timeout_seconds: 180 # rotate endpoint if no new blocks for 3 minutes
     finalized_interval_seconds: 10 # get finalized head every 10 seconds
   telemetry:
     provider: otlp
+    #agent_endpoint: http://127.0.0.1:4317
   prometheus:
     port: 9616
     listen_address: "0.0.0.0"
