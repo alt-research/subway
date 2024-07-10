@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 #[derive(Parser, Debug)]
-#[command(version, about)]
+#[command(version = env!("CARGO_PKG_VERSION"), long_version="", about)]
 pub struct Cli {
     /// The config file to use
     #[arg(short, long, default_value = "configs/config.yml")]

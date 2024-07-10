@@ -8,6 +8,7 @@ use opentelemetry_sdk::{
     Resource,
 };
 use serde::Deserialize;
+use opentelemetry_semantic_conventions as semconv;
 
 use super::{Extension, ExtensionRegistry};
 
@@ -71,8 +72,8 @@ pub fn setup_telemetry(options: &TelemetryConfig) -> Result<Option<Tracer>, Trac
             }
 
             let resource = match options.service_name.as_ref() {
-                Some(service_name) => Resource::new(vec![KeyValue::new("service.name", service_name.clone())]),
-                None => Resource::new(vec![KeyValue::new("service.name", "subway")]),
+                Some(service_name) => Resource::new(vec![KeyValue::new(semconv::resource::SERVICE_NAME, service_name.clone())]),
+                None => Resource::new(vec![KeyValue::new(semconv::resource::SERVICE_NAME, "subway")]),
             };
 
             let trace_config = trace::config()
