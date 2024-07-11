@@ -1,10 +1,10 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::build_info::build_info;
+use crate::build_info::{SHORT_VERSION};
 
 #[derive(Parser, Debug)]
-#[command(version = build_info::TAG, about)]
+#[command(version = SHORT_VERSION, about)]
 pub struct Cli {
     // Print long version
     #[arg(long)]
