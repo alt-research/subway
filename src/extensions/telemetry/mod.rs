@@ -7,8 +7,12 @@ use opentelemetry_sdk::{
     trace::{self, RandomIdGenerator, Sampler, Tracer},
     Resource,
 };
+
+use opentelemetry_semantic_conventions::{
+    resource::{SERVICE_NAME, SERVICE_VERSION},
+    SCHEMA_URL,
+};
 use serde::Deserialize;
-use opentelemetry_semantic_conventions as semconv;
 
 use super::{Extension, ExtensionRegistry};
 
@@ -71,10 +75,16 @@ pub fn setup_telemetry(options: &TelemetryConfig) -> Result<Option<Tracer>, Trac
                 exporter = exporter.with_endpoint(agent_endpoint.clone());
             }
 
-            let resource = match options.service_name.as_ref() {
-                Some(service_name) => Resource::new(vec![KeyValue::new(semconv::resource::SERVICE_NAME, service_name.clone())]),
-                None => Resource::new(vec![KeyValue::new(semconv::resource::SERVICE_NAME, "subway")]),
-            };
+            let resource = Resource::from_schema_url(
+                [
+                    KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
+                    KeyValue::new(
+                        SERVICE_VERSION,
+                        crate::build_info::GIT_VERSION.unwrap_or(env!("CARGO_PKG_VERSION")),
+                    ),
+                ],
+                SCHEMA_URL,
+            );
 
             let trace_config = trace::config()
                 .with_resource(resource)

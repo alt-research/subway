@@ -55,11 +55,12 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 alloy-consensus = { version = "0.1.1", features = ["k256", "serde"] }
 alloy-eips = { version = "0.1.1" }
 alloy-primitives = { version = "0.7.6", features = ["serde"] }
+built = { version = "0.7", features = ["chrono", "semver"] }
 opentelemetry-semantic-conventions = "0.15.0"
-shadow-rs = "0.29.0"
+const_format = "0.2.32"
 
 [build-dependencies]
-shadow-rs = "0.29.0"
+built = { version = "0.7", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["async_tokio", "html_reports"] }

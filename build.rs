@@ -1,5 +1,5 @@
-fn main() -> shadow_rs::SdResult<()> {
+fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/COMMIT_EDITMSG");
-    shadow_rs::new()
+    built::write_built_file().expect("Failed to acquire build-time information");
 }
