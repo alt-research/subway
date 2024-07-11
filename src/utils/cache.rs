@@ -54,7 +54,7 @@ pub struct Cache<D: Digest> {
 }
 
 impl<D: Digest + 'static> Cache<D> {
-    pub fn new(size: NonZeroUsize, ttl: Option<Duration>) -> Self {
+    pub fn new(size: NonZeroUsize, ttl: Option<Duration>, tti: Option<Duration>) -> Self {
         let size = size.get();
         let mut builder = moka::future::Cache::<CacheKey<D>, CacheValue>::builder()
             .max_capacity(size as u64)
@@ -62,6 +62,10 @@ impl<D: Digest + 'static> Cache<D> {
 
         if let Some(duration) = ttl {
             builder = builder.time_to_live(duration);
+        }
+
+        if let Some(duration) = tti {
+            builder = builder.time_to_idle(duration);
         }
 
         let cache = builder.build();
@@ -145,7 +149,7 @@ impl<D: Digest + 'static> Cache<D> {
     }
 
     pub async fn remove(&self, key: &CacheKey<D>) {
-        self.cache.remove(key).await;
+        self.cache.invalidate(key).await;
     }
 
     pub async fn sync(&self) {
@@ -162,7 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_insert_remove() {
-        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None);
+        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None, None);
 
         let key = CacheKey::<blake2::Blake2b512>::new(&"key".to_string(), &[]);
 
@@ -179,7 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_or_insert_with_basic() {
-        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None);
+        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None, None);
 
         let key = CacheKey::<blake2::Blake2b512>::new(&"key".to_string(), &[]);
 
@@ -228,7 +232,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_or_insert_with_handle_canceled_request() {
-        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None);
+        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None, None);
 
         let key = CacheKey::<blake2::Blake2b512>::new(&"key".to_string(), &[]);
 
@@ -272,7 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_or_insert_with_error() {
-        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None);
+        let cache = Cache::<blake2::Blake2b512>::new(NonZeroUsize::new(1).unwrap(), None, None);
 
         let key = CacheKey::<blake2::Blake2b512>::new(&"key".to_string(), &[]);
 

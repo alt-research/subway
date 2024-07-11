@@ -12,9 +12,21 @@ extensions:
     port: 9616
     listen_address: "0.0.0.0"
     prefix: "subway"
-  cache:
-    default_ttl_seconds: 60
-    default_size: 500
+    # See https://docs.rs/moka/0.12.8/moka/future/struct.Cache.html#example-time-based-expirations
+    # Time to live (TTL): A cached entry will be expired after the specified duration past from insert.
+    # Time to idle (TTI): A cached entry will be expired after the specified duration past from get or insert.
+    # They are a cache-level expiration policies;
+    # all entries in the cache will have the same TTL and/or TTI durations.
+    # If you want to set different expiration durations for different entries, see the next section.  cache:
+    # we cache it
+
+    # a half hour tti for block-based rpc, e.g. eth_getBlockByNumber.
+    # Other rpc should not use this default config.
+    default_tti_seconds: 180
+    # a half hour ttl for block-based rpc, e.g. eth_getBlockByNumber.
+    # Other rpc should not use this default config.
+    default_ttl_seconds: 1800
+    default_size: 4096
   server:
     port: 8545
     listen_address: '0.0.0.0'

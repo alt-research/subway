@@ -59,9 +59,19 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for CacheMiddleware {
             None => cache_ext.config.default_ttl_seconds,
         };
 
+        let tti_seconds = match method.cache {
+            // ttl zero means cache forever
+            Some(CacheParams {
+                tti_seconds: Some(0), ..
+            }) => None,
+            Some(CacheParams { tti_seconds, .. }) => tti_seconds.or(cache_ext.config.default_tti_seconds),
+            None => cache_ext.config.default_tti_seconds,
+        };
+
         let cache = Cache::new(
             NonZeroUsize::new(size)?,
             ttl_seconds.map(std::time::Duration::from_secs),
+            tti_seconds.map(std::time::Duration::from_secs),
         );
 
         Some(Box::new(Self::new(cache, metrics)))
@@ -133,7 +143,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_ok_resp() {
-        let cache = Cache::new(NonZeroUsize::try_from(1).unwrap(), None);
+        let cache = Cache::new(NonZeroUsize::try_from(1).unwrap(), None, None);
         let middleware = CacheMiddleware::new(cache.clone(), RpcMetrics::noop());
 
         let res = middleware
@@ -211,7 +221,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_not_cache_null() {
-        let middleware = CacheMiddleware::new(Cache::new(NonZeroUsize::try_from(3).unwrap(), None), RpcMetrics::noop());
+        let middleware = CacheMiddleware::new(
+            Cache::new(NonZeroUsize::try_from(3).unwrap(), None, None),
+            RpcMetrics::noop(),
+        );
 
         let res = middleware
             .call(
@@ -239,7 +252,50 @@ mod tests {
     #[tokio::test]
     async fn cache_ttl_works() {
         let middleware = CacheMiddleware::new(
-            Cache::new(NonZeroUsize::new(1).unwrap(), Some(Duration::from_millis(10))),
+            Cache::new(NonZeroUsize::new(1).unwrap(), Some(Duration::from_millis(10)), None),
+            RpcMetrics::noop(),
+        );
+
+        let res = middleware
+            .call(
+                CallRequest::new("test", vec![json!(11)]),
+                Default::default(),
+                Box::new(move |_, _| async move { Ok(json!(1)) }.boxed()),
+            )
+            .await;
+        assert_eq!(res.unwrap(), json!(1));
+
+        // wait for cache write
+        tokio::time::sleep(Duration::from_millis(1)).await;
+
+        // cache hit
+        let res = middleware
+            .call(
+                CallRequest::new("test", vec![json!(11)]),
+                Default::default(),
+                Box::new(move |_, _| async move { panic!() }.boxed()),
+            )
+            .await;
+        assert_eq!(res.unwrap(), json!(1));
+
+        // wait for cache to expire
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // cache miss
+        let res = middleware
+            .call(
+                CallRequest::new("test", vec![json!(11)]),
+                Default::default(),
+                Box::new(move |_, _| async move { Ok(json!(2)) }.boxed()),
+            )
+            .await;
+        assert_eq!(res.unwrap(), json!(2));
+    }
+
+    #[tokio::test]
+    async fn cache_tti_works() {
+        let middleware = CacheMiddleware::new(
+            Cache::new(NonZeroUsize::new(1).unwrap(), None, Some(Duration::from_millis(10))),
             RpcMetrics::noop(),
         );
 
@@ -281,7 +337,10 @@ mod tests {
 
     #[tokio::test]
     async fn bypass_cache() {
-        let middleware = CacheMiddleware::new(Cache::new(NonZeroUsize::try_from(3).unwrap(), None), RpcMetrics::noop());
+        let middleware = CacheMiddleware::new(
+            Cache::new(NonZeroUsize::try_from(3).unwrap(), None, None),
+            RpcMetrics::noop(),
+        );
 
         let res = middleware
             .call(
@@ -324,7 +383,10 @@ mod tests {
 
     #[tokio::test]
     async fn avoid_repeated_requests() {
-        let middleware = CacheMiddleware::new(Cache::new(NonZeroUsize::try_from(3).unwrap(), None), RpcMetrics::noop());
+        let middleware = CacheMiddleware::new(
+            Cache::new(NonZeroUsize::try_from(3).unwrap(), None, None),
+            RpcMetrics::noop(),
+        );
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let res = middleware.call(
@@ -354,6 +416,7 @@ mod tests {
             cache: Some(crate::extensions::cache::CacheConfig {
                 default_size: 100,
                 default_ttl_seconds: Some(10),
+                ..Default::default()
             }),
             ..Default::default()
         }
@@ -367,7 +430,7 @@ mod tests {
                 method: "foo".to_string(),
                 cache: Some(CacheParams {
                     size: Some(0),
-                    ttl_seconds: None,
+                    ..Default::default()
                 }),
                 params: vec![],
                 response: None,
@@ -383,10 +446,7 @@ mod tests {
         let cache_middleware = CacheMiddleware::build(
             &RpcMethod {
                 method: "foo".to_string(),
-                cache: Some(CacheParams {
-                    size: None,
-                    ttl_seconds: None,
-                }),
+                cache: Some(CacheParams::default()),
                 params: vec![],
                 response: None,
                 delay_ms: None,
@@ -403,7 +463,7 @@ mod tests {
                 method: "foo".to_string(),
                 cache: Some(CacheParams {
                     size: Some(1),
-                    ttl_seconds: None,
+                    ..Default::default()
                 }),
                 params: vec![],
                 response: None,

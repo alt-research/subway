@@ -7,11 +7,14 @@ pub struct Cache {
     pub config: CacheConfig,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 pub struct CacheConfig {
-    // None means no cache expiration
+    // None means no ttl cache expiration
     #[serde(default)]
     pub default_ttl_seconds: Option<u64>,
+    // None means no tti cache expiration
+    #[serde(default)]
+    pub default_tti_seconds: Option<u64>,
     pub default_size: usize,
 }
 

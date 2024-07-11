@@ -2,13 +2,15 @@ use garde::Validate;
 use jsonrpsee::core::JsonValue;
 use serde::Deserialize;
 
-#[derive(Clone, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Debug, Eq, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CacheParams {
     #[serde(default)]
     pub size: Option<usize>,
     #[serde(default)]
     pub ttl_seconds: Option<u64>,
+    #[serde(default)]
+    pub tti_seconds: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Debug, Eq, PartialEq)]
