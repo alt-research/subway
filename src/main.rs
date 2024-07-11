@@ -2,6 +2,11 @@
 async fn main() -> anyhow::Result<()> {
     subway::logger::enable_logger();
     let cli = subway::cli::parse_args();
+    if cli.version_long {
+        println!("{}", subway::build_info::build_info::CLAP_LONG_VERSION);
+        return Ok(());
+    }
+
     let config = subway::config::read_config(&cli.config)?;
     tracing::trace!("{:#?}", config);
 

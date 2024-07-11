@@ -1,8 +1,15 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+
+use crate::build_info::build_info;
+
 #[derive(Parser, Debug)]
-#[command(version = env!("CARGO_PKG_VERSION"), long_version="", about)]
+#[command(version = build_info::TAG, about)]
 pub struct Cli {
+    // Print long version
+    #[arg(long)]
+    pub version_long: bool,
+
     /// The config file to use
     #[arg(short, long, default_value = "configs/config.yml")]
     pub config: PathBuf,
