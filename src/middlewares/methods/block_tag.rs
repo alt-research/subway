@@ -50,11 +50,11 @@ impl BlockTagMiddleware {
                     // nothing to do here
                     return (request, context);
                 }
+                self.metrics.finalized_query(&request.method);
                 match param.as_str().unwrap_or_default() {
                     "finalized" => {
                         let finalized_head = self.api.current_finalized_head();
                         if let Some((_, finalized_number)) = finalized_head {
-                            self.metrics.finalized_query(&request.method);
                             Some(format!("0x{:x}", finalized_number).into())
                         } else {
                             self.metrics.finalized_miss(&request.method);
@@ -70,11 +70,7 @@ impl BlockTagMiddleware {
                         let (_, number) = self.api.get_head().read().await;
                         Some(format!("0x{:x}", number).into())
                     }
-                    "earliest" => {
-                        self.metrics.finalized_query(&request.method);
-                        // no need to replace earliest because it's always going to be genesis
-                        None
-                    }
+                    "earliest" => None, // no need to replace earliest because it's always going to be genesis
                     "pending" | "safe" => {
                         self.metrics.finalized_miss(&request.method);
                         context.insert(BypassCache(true));
@@ -87,10 +83,9 @@ impl BlockTagMiddleware {
                             if let Some(hex_number) = number.strip_prefix("0x") {
                                 if let Ok(number) = u64::from_str_radix(hex_number, 16) {
                                     if number <= finalized_number {
-                                        self.metrics.finalized_miss(&request.method);
                                         bypass_cache = false;
                                     } else {
-                                        self.metrics.finalized_query(&request.method);
+                                        self.metrics.finalized_miss(&request.method);
                                     }
                                 }
                             }
