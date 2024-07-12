@@ -9,6 +9,7 @@ use jsonrpsee::server::{
 };
 use jsonrpsee::Methods;
 use opentelemetry::{trace::FutureExt as _, KeyValue};
+use opentelemetry_semantic_conventions::resource as semcov;
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tower::{layer::layer_fn, Service};
@@ -24,7 +25,6 @@ use crate::extensions::rate_limit::{MethodWeights, RateLimitBuilder, XFF};
 use crate::extensions::server::prometheus::PrometheusService;
 use crate::extensions::{Extension, ExtensionRegistry};
 use crate::utils::telemetry;
-use opentelemetry_semantic_conventions::resource as semcov;
 const TRACER: telemetry::Tracer = telemetry::Tracer::new("server");
 
 pub struct SubwayServerBuilder {
@@ -217,8 +217,8 @@ impl SubwayServerBuilder {
                     let scheme = req
                         .uri()
                         .scheme_str()
-                        .unwrap_or(protocol.to_string().as_str())
-                        .to_string();
+                        .map(|s| s.to_string())
+                        .unwrap_or(protocol.to_string());
                     let path = req.uri().path().to_string();
                     let user_agent = req
                         .headers()

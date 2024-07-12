@@ -1,20 +1,18 @@
 mod rpc_metrics;
 
-use super::{Extension, ExtensionRegistry};
+use std::{iter, net::SocketAddr};
+
 use async_trait::async_trait;
 use serde::Deserialize;
-use std::iter;
-use std::net::SocketAddr;
-use substrate_prometheus_endpoint::init_prometheus;
-use substrate_prometheus_endpoint::Gauge;
-use substrate_prometheus_endpoint::Opts;
-use substrate_prometheus_endpoint::Registry;
-use substrate_prometheus_endpoint::U64;
+use substrate_prometheus_endpoint::{init_prometheus, Gauge, Opts, Registry, U64};
 use tokio::task::JoinHandle;
 
-use crate::build_info;
-use crate::utils::TypeRegistryRef;
-pub use rpc_metrics::RpcMetrics;
+pub use self::rpc_metrics::RpcMetrics;
+use crate::{
+    build_info,
+    extensions::{Extension, ExtensionRegistry},
+    utils::TypeRegistryRef,
+};
 
 pub async fn get_rpc_metrics(registry: &TypeRegistryRef) -> RpcMetrics {
     let prometheus = registry.read().await.get::<Prometheus>();
