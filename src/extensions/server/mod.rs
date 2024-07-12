@@ -24,7 +24,7 @@ use crate::extensions::rate_limit::{MethodWeights, RateLimitBuilder, XFF};
 use crate::extensions::server::prometheus::PrometheusService;
 use crate::extensions::{Extension, ExtensionRegistry};
 use crate::utils::telemetry;
-
+use opentelemetry_semantic_conventions::resource as semcov;
 const TRACER: telemetry::Tracer = telemetry::Tracer::new("server");
 
 pub struct SubwayServerBuilder {
@@ -213,7 +213,19 @@ impl SubwayServerBuilder {
 
                     let mut socket_ip = remote_addr.ip().to_string();
                     let xff_ip = req.xxf_ip().unwrap_or(socket_ip.clone());
+                    let domain = req.uri().host().unwrap_or("unknown").to_string();
+                    let scheme = req
+                        .uri()
+                        .scheme_str()
+                        .unwrap_or(protocol.to_string().as_str())
+                        .to_string();
                     let path = req.uri().path().to_string();
+                    let user_agent = req
+                        .headers()
+                        .get("user-agent")
+                        .map(|v| v.to_str().unwrap_or("unknown"))
+                        .unwrap_or("unknown")
+                        .to_string();
 
                     if let Some(true) = rate_limit_builder.as_ref().map(|r| r.use_xff()) {
                         socket_ip = req.xxf_ip().unwrap_or(socket_ip);
@@ -253,9 +265,16 @@ impl SubwayServerBuilder {
 
                         service.call(req).await.map_err(|e| anyhow::anyhow!("{:?}", e))
                     }
-                    .with_context(
-                        TRACER.context_with_attrs("remote", [KeyValue::new("ip", xff_ip), KeyValue::new("path", path)]),
-                    )
+                    .with_context(TRACER.context_with_attrs(
+                        "server",
+                        [
+                            KeyValue::new(semcov::CLIENT_ADDRESS, xff_ip),
+                            KeyValue::new(semcov::URL_DOMAIN, domain),
+                            KeyValue::new(semcov::URL_SCHEME, scheme),
+                            KeyValue::new(semcov::URL_PATH, path),
+                            KeyValue::new(semcov::HTTP_USER_AGENT, user_agent),
+                        ],
+                    ))
                     .boxed()
                 });
 
