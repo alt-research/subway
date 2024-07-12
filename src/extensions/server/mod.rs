@@ -25,6 +25,7 @@ use crate::extensions::rate_limit::{MethodWeights, RateLimitBuilder, XFF};
 use crate::extensions::server::prometheus::PrometheusService;
 use crate::extensions::{Extension, ExtensionRegistry};
 use crate::utils::telemetry;
+
 const TRACER: telemetry::Tracer = telemetry::Tracer::new("server");
 
 pub struct SubwayServerBuilder {

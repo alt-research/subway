@@ -2,7 +2,6 @@
 async fn main() -> anyhow::Result<()> {
     subway::logger::enable_logger();
     let cli = subway::cli::parse_args();
-
     let config = subway::config::read_config(&cli.config)?;
     tracing::trace!("{:#?}", config);
 
