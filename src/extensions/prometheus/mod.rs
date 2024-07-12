@@ -64,8 +64,7 @@ impl Prometheus {
             .clone()
             .map(|l| iter::once(("chain".to_string(), l.clone())).collect());
 
-        let registry = Registry::new_custom(Some(config.prefix), labels)
-            .expect("It can't fail, we make sure the `prefix` is either `None` or `Some` of non-empty string");
+        let registry = Registry::new_custom(Some(config.prefix), labels).expect("prefix can not be empty string");
 
         // add subway info metric
         let info_gauge = Gauge::<U64>::with_opts(
