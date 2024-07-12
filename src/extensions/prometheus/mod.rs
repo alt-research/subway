@@ -72,9 +72,15 @@ impl Prometheus {
         // add subway info metric
         let info_gauge = Gauge::<U64>::with_opts(
             Opts::new("info", "Subway release info")
-                .const_label("version", build_info::GIT_VERSION.unwrap_or(env!("CARGO_PKG_VERSION")).to_string())
-                .const_label("commit", build_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown").to_string())
-                .const_label("rustc", build_info::RUSTC_VERSION.to_string())
+                .const_label(
+                    "version",
+                    build_info::GIT_VERSION.unwrap_or(env!("CARGO_PKG_VERSION")).to_string(),
+                )
+                .const_label(
+                    "commit",
+                    build_info::GIT_COMMIT_HASH_SHORT.unwrap_or("unknown").to_string(),
+                )
+                .const_label("rustc", build_info::RUSTC_VERSION.to_string()),
         )
         .expect("Failed to create version gauge");
         registry

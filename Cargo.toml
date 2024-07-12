@@ -56,8 +56,8 @@ alloy-consensus = { version = "0.1.1", features = ["k256", "serde"] }
 alloy-eips = { version = "0.1.1" }
 alloy-primitives = { version = "0.7.6", features = ["serde"] }
 built = { version = "0.7", features = ["chrono", "semver"] }
-opentelemetry-semantic-conventions = "0.15.0"
 const_format = "0.2.32"
+opentelemetry-semantic-conventions = "0.15.0"
 
 [build-dependencies]
 built = { version = "0.7", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
