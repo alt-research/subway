@@ -62,6 +62,7 @@ impl Prometheus {
         // make sure the prefix is not an Option of Some empty string
         let prefix = match config.prefix {
             Some(p) if p.is_empty() => Some("subway".to_string()),
+            None => Some("subway".to_string()),
             p => p,
         };
         let registry = Registry::new_custom(prefix, labels)

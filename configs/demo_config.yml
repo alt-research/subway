@@ -13,7 +13,7 @@ extensions:
   prometheus:
     port: 9616
     listen_address: "0.0.0.0"
-    prefix: "subway"
+    # prefix: "subway"
   cache:
     default_ttl_seconds: 60
     default_size: 500
