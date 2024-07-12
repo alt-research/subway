@@ -92,7 +92,7 @@ impl InnerMetrics {
         let finalized_miss_counter = CounterVec::new(
             Opts::new(
                 "finalized_miss_counter",
-                "Total number of finalized block misses of RPC requests",
+                "Total number of finalized block misses of RPC requests with block tag",
             ),
             &["method"],
         )
@@ -100,7 +100,7 @@ impl InnerMetrics {
         let finalized_query_counter = CounterVec::new(
             Opts::new(
                 "finalized_query_counter",
-                "Total number of finalized block queries of RPC requests",
+                "Total number of finalized block queries of RPC requests with block tag",
             ),
             &["method"],
         )
