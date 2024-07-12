@@ -6,6 +6,7 @@ use opentelemetry_semantic_conventions as semconv;
 
 use crate::{
     extensions::api::EthApi,
+    extensions::prometheus::{get_rpc_metrics, RpcMetrics},
     middlewares::{CallRequest, CallResult, Middleware, MiddlewareBuilder, NextFn, RpcMethod, TRACER},
     utils::{TypeRegistry, TypeRegistryRef},
 };
@@ -15,6 +16,7 @@ use super::cache::BypassCache;
 pub struct BlockTagMiddleware {
     api: Arc<EthApi>,
     index: usize,
+    metrics: RpcMetrics,
 }
 
 #[async_trait]
@@ -24,6 +26,7 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for BlockTagMiddlewar
         extensions: &TypeRegistryRef,
     ) -> Option<Box<dyn Middleware<CallRequest, CallResult>>> {
         let index = method.params.iter().position(|p| p.ty == "BlockTag" && p.inject)?;
+        let metrics = get_rpc_metrics(extensions).await;
 
         let eth_api = extensions
             .read()
@@ -31,13 +34,13 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for BlockTagMiddlewar
             .get::<EthApi>()
             .expect("EthApi extension not found");
 
-        Some(Box::new(BlockTagMiddleware::new(eth_api, index)))
+        Some(Box::new(BlockTagMiddleware::new(eth_api, index, metrics)))
     }
 }
 
 impl BlockTagMiddleware {
-    pub fn new(api: Arc<EthApi>, index: usize) -> Self {
-        Self { api, index }
+    pub fn new(api: Arc<EthApi>, index: usize, metrics: RpcMetrics) -> Self {
+        Self { api, index, metrics }
     }
 
     async fn replace(&self, mut request: CallRequest, mut context: TypeRegistry) -> (CallRequest, TypeRegistry) {
@@ -51,8 +54,10 @@ impl BlockTagMiddleware {
                     "finalized" => {
                         let finalized_head = self.api.current_finalized_head();
                         if let Some((_, finalized_number)) = finalized_head {
+                            self.metrics.finalized_query(&request.method);
                             Some(format!("0x{:x}", finalized_number).into())
                         } else {
+                            self.metrics.finalized_miss(&request.method);
                             // cannot determine finalized
                             context.insert(BypassCache(true));
                             None
@@ -60,12 +65,18 @@ impl BlockTagMiddleware {
                     }
                     "latest" => {
                         // bypass cache for latest block to avoid caching forks
+                        self.metrics.finalized_miss(&request.method);
                         context.insert(BypassCache(true));
                         let (_, number) = self.api.get_head().read().await;
                         Some(format!("0x{:x}", number).into())
                     }
-                    "earliest" => None, // no need to replace earliest because it's always going to be genesis
+                    "earliest" => {
+                        self.metrics.finalized_query(&request.method);
+                        // no need to replace earliest because it's always going to be genesis
+                        None
+                    }
                     "pending" | "safe" => {
+                        self.metrics.finalized_miss(&request.method);
                         context.insert(BypassCache(true));
                         None
                     }
@@ -76,10 +87,15 @@ impl BlockTagMiddleware {
                             if let Some(hex_number) = number.strip_prefix("0x") {
                                 if let Ok(number) = u64::from_str_radix(hex_number, 16) {
                                     if number <= finalized_number {
+                                        self.metrics.finalized_miss(&request.method);
                                         bypass_cache = false;
+                                    } else {
+                                        self.metrics.finalized_query(&request.method);
                                     }
                                 }
                             }
+                        } else {
+                            self.metrics.finalized_miss(&request.method);
                         }
                         if bypass_cache {
                             context.insert(BypassCache(true));
@@ -191,7 +207,11 @@ mod tests {
         let (context, api) = create_client().await;
 
         (
-            BlockTagMiddleware::new(Arc::new(api), params.iter().position(|p| p.ty == "BlockTag").unwrap()),
+            BlockTagMiddleware::new(
+                Arc::new(api),
+                params.iter().position(|p| p.ty == "BlockTag").unwrap(),
+                RpcMetrics::noop(),
+            ),
             context,
         )
     }
