@@ -224,7 +224,6 @@ pub fn extract_address_from_to(params: &[JsonValue]) -> Result<(Option<Address>,
     let p1 = params.first().ok_or_else(err_illegal_rpc_parameter)?;
 
     // For eth_call, it's optional.
-    // let from = p1.get("from").ok_or_else(err_unknown_from_address)?;
     let from = p1.get("from");
 
     let from = if let Some(from) = from {
@@ -264,7 +263,7 @@ impl<T: ItemChecker<Item = (Option<Address>, ToAddress)>> Middleware<CallRequest
             match self.rpc_type {
                 RpcType::EthCall | RpcType::SendTX => {
                     let (from, to) = extract_address_from_to(&request.params)?;
-                    // tx must have from.
+                    // tx must have `from`.
                     if self.rpc_type == RpcType::SendTX {
                         from.ok_or_else(err_unknown_from_address)?;
                     }
@@ -410,6 +409,16 @@ mod tests {
                 ETH_CALL,
                 vec![json!( {
                     "from": from,
+                    "to": to,
+                })],
+            )
+        }
+
+        pub fn eth_call_with_to(to: TxKind) -> CallRequest {
+            CallRequest::new(
+                ETH_CALL,
+                vec![json!( {
+                // missing `from`
                     "to": to,
                 })],
             )
@@ -683,23 +692,23 @@ params:
                 expected_res: ok_res.clone(),
                 config: blacklist.clone(),
             },
-            // Case {
-            //     // 0x03 could create
-            //     request: request::eth_call(address!("0000000000000000000000000000000000000003"), TxKind::Create),
-            //     expected_res: ok_res.clone(),
-            //     config: whitelist.clone(),
-            // },
-            // Case {
-            //     // optional `from`
-            //     request: request::eth_call_with_to(TxKind::Call(address!("0000000000000000000000000000000000000004"))),
-            //     expected_res: ok_res.clone(),
-            //     config: whitelist.clone(),
-            // },
-            // Case {
-            //     request: request::eth_call_with_to(TxKind::Call(address!("0000000000000000000000000000000000000005"))),
-            //     expected_res: Err(err_banned_address()),
-            //     config: whitelist.clone(),
-            // },
+            Case {
+                // 0x03 could create
+                request: request::eth_call(address!("0000000000000000000000000000000000000003"), TxKind::Create),
+                expected_res: ok_res.clone(),
+                config: whitelist.clone(),
+            },
+            Case {
+                // optional `from`
+                request: request::eth_call_with_to(TxKind::Call(address!("0000000000000000000000000000000000000004"))),
+                expected_res: ok_res.clone(),
+                config: whitelist.clone(),
+            },
+            Case {
+                request: request::eth_call_with_to(TxKind::Call(address!("0000000000000000000000000000000000000005"))),
+                expected_res: Err(err_banned_address()),
+                config: whitelist.clone(),
+            },
         ];
 
         for (n, case) in cases.iter().enumerate() {
