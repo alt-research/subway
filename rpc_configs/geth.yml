@@ -25,12 +25,12 @@ methods:
       ttl_units: 1
   - method: eth_feeHistory
     params:
-      - name: blockCount
+      - name: BlockCount
         ty: Bytes
-      - name: newestBlock
+      - name: NewestBlock
         ty: BlockTag
         inject: true
-      - name: rewardPercentiles
+      - name: RewardPercentiles
         ty: Bytes
   # Eth namespace (sign)
   - method: eth_sign
@@ -96,7 +96,7 @@ methods:
       - name: Block
         ty: BlockTag
         inject: true
-      - name: fullTransactions
+      - name: FullTransactions
         ty: Boolean
   - method: eth_getBlockTransactionCountByHash
     params:

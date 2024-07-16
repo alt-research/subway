@@ -328,3 +328,188 @@ impl BlockCacheMiddlewareImpl {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use jsonrpsee::server::ServerHandle;
+    use serde_json::json;
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::config::MethodParam;
+    use crate::extensions::client::{
+        mock::{MockRequest, MockSubscription, SinkTask, TestServerBuilder},
+        Client,
+    };
+
+    struct ExecutionContext {
+        _server: ServerHandle,
+        subscribe_rx: mpsc::Receiver<MockSubscription>,
+        get_block_rx: mpsc::Receiver<MockRequest>,
+    }
+
+    impl ExecutionContext {
+        async fn send_current_block(&mut self, msg: JsonValue) {
+            let req = self.get_block_rx.recv().await.unwrap();
+            req.respond(msg);
+        }
+    }
+
+    async fn create_client() -> (ExecutionContext, EthApi) {
+        let mut builder = TestServerBuilder::new();
+
+        let subscribe_rx = builder.register_subscription("eth_subscribe", "eth_subscription", "eth_unsubscribe");
+        let get_block_rx = builder.register_method("eth_getBlockByNumber");
+
+        let (addr, _server) = builder.build().await;
+        let client = Client::with_endpoints([format!("ws://{addr}")]).unwrap();
+        let api = EthApi::new(Arc::new(client), Duration::from_secs(100), None);
+
+        (
+            ExecutionContext {
+                _server,
+                subscribe_rx,
+                get_block_rx,
+            },
+            api,
+        )
+    }
+
+    async fn create_block_cache_middleware(params: Vec<MethodParam>) -> (BlockCacheMiddleware, ExecutionContext) {
+        let (context, api) = create_client().await;
+        let index = params.iter().position(|p| p.ty == "BlockTag").unwrap();
+        let finalized_cache = Cache::new(NonZeroUsize::new(1).unwrap(), Some(Duration::from_millis(100)));
+        let recent_cache = Cache::new(NonZeroUsize::new(1).unwrap(), Some(Duration::from_millis(100)));
+
+        (
+            BlockCacheMiddleware::new(Arc::new(api), index, finalized_cache, recent_cache, RpcMetrics::noop()),
+            context,
+        )
+    }
+
+    #[tokio::test]
+    async fn works() {
+        let (middleware, mut context) = create_block_cache_middleware(vec![
+            MethodParam {
+                name: "Block".to_string(),
+                ty: "BlockTag".to_string(),
+                optional: false,
+                inject: true,
+            },
+            MethodParam {
+                name: "FullTransactions".to_string(),
+                ty: "Boolean".to_string(),
+                optional: false,
+                inject: false,
+            },
+        ])
+        .await;
+
+        let send_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            context
+                .send_current_block(json!({ "number": "0x4321", "hash": "0x01" }))
+                .await;
+
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let sub = context.subscribe_rx.recv().await.unwrap();
+            if sub.params.as_array().unwrap().contains(&json!("newFinalizedHeads")) {
+                sub.run_sink_tasks(vec![SinkTask::Send(json!({ "number": "0x4321", "hash": "0x01" }))])
+                    .await
+            }
+            let sub = context.subscribe_rx.recv().await.unwrap();
+            if sub.params.as_array().unwrap().contains(&json!("newHeads")) {
+                sub.run_sink_tasks(vec![SinkTask::Send(json!({ "number": "0x5432", "hash": "0x02" }))])
+                    .await
+            }
+        });
+
+        let key_0x4321 = CacheKey::new("eth_getBlockByNumber", &[json!("0x4321"), json!(false)]);
+        assert!(middleware.recent_cache.get(&key_0x4321).await.is_none());
+        assert_eq!(
+            middleware
+                .call(
+                    CallRequest::new("eth_getBlockByNumber", vec![json!("latest"), json!(false)]),
+                    Default::default(),
+                    Box::new(move |req: CallRequest, _| {
+                        async move {
+                            // latest block replaced with block number
+                            assert_eq!(req.params, vec![json!("0x4321"), json!(false)]);
+                            Ok(json!("0x1111"))
+                        }
+                        .boxed()
+                    }),
+                )
+                .await
+                .unwrap(),
+            json!("0x1111")
+        );
+        assert!(middleware.recent_cache.get(&key_0x4321).await.is_some());
+
+        assert!(middleware.finalized_cache.get(&key_0x4321).await.is_none());
+        assert_eq!(
+            middleware
+                .call(
+                    CallRequest::new("eth_getBlockByNumber", vec![json!("finalized"), json!(false)]),
+                    Default::default(),
+                    Box::new(move |req: CallRequest, _| {
+                        async move {
+                            // block tag not replaced
+                            assert_eq!(req.params, vec![json!("finalized"), json!(false)]);
+                            Ok(json!("0x1111"))
+                        }
+                        .boxed()
+                    }),
+                )
+                .await
+                .unwrap(),
+            json!("0x1111")
+        );
+        assert!(middleware.finalized_cache.get(&key_0x4321).await.is_none());
+
+        send_task.await.unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        assert_eq!(
+            middleware
+                .call(
+                    CallRequest::new("eth_getBlockByNumber", vec![json!("finalized"), json!(false)]),
+                    Default::default(),
+                    Box::new(move |req: CallRequest, _| {
+                        async move {
+                            // block tag replaced with block number
+                            assert_eq!(req.params, vec![json!("0x4321"), json!(false)]);
+                            Ok(json!("0x1111"))
+                        }
+                        .boxed()
+                    }),
+                )
+                .await
+                .unwrap(),
+            json!("0x1111")
+        );
+        assert!(middleware.finalized_cache.get(&key_0x4321).await.is_some());
+
+        let key_0x5432 = CacheKey::new("eth_getBlockByNumber", &[json!("0x5432"), json!(false)]);
+        assert!(middleware.recent_cache.get(&key_0x5432).await.is_none());
+        assert_eq!(
+            middleware
+                .call(
+                    CallRequest::new("eth_getBlockByNumber", vec![json!("latest"), json!(false)]),
+                    Default::default(),
+                    Box::new(move |req: CallRequest, _| {
+                        async move {
+                            // latest block replaced with block number
+                            assert_eq!(req.params, vec![json!("0x5432"), json!(false)]);
+                            Ok(json!("0x1111"))
+                        }
+                        .boxed()
+                    }),
+                )
+                .await
+                .unwrap(),
+            json!("0x1111")
+        );
+        assert!(middleware.recent_cache.get(&key_0x5432).await.is_some());
+    }
+}
