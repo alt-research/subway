@@ -22,12 +22,14 @@ use crate::{
     utils::{Cache, CacheKey, TypeRegistry, TypeRegistryRef},
 };
 
+const TRACING_TARGET: &str = "middleware::block_cache";
+
 pub struct BlockCacheMiddleware {
     api: Arc<EthApi>,
-    index: usize,
+    index: Option<usize>,
 
-    finalized_cache: Cache<Blake2b512>,
     recent_cache: Cache<Blake2b512>,
+    finalized_cache: Cache<Blake2b512>,
 
     metrics: RpcMetrics,
 }
@@ -35,16 +37,16 @@ pub struct BlockCacheMiddleware {
 impl BlockCacheMiddleware {
     pub fn new(
         api: Arc<EthApi>,
-        index: usize,
-        finalized_cache: Cache<Blake2b512>,
+        index: Option<usize>,
         recent_cache: Cache<Blake2b512>,
+        finalized_cache: Cache<Blake2b512>,
         metrics: RpcMetrics,
     ) -> Self {
         Self {
             api,
             index,
-            finalized_cache,
             recent_cache,
+            finalized_cache,
             metrics,
         }
     }
@@ -56,7 +58,7 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for BlockCacheMiddlew
         method: &RpcMethod,
         extensions: &TypeRegistryRef,
     ) -> Option<Box<dyn Middleware<CallRequest, CallResult>>> {
-        let index = method.params.iter().position(|p| p.ty == "BlockTag" && p.inject)?;
+        let index = method.params.iter().position(|p| p.ty == "BlockTag" && p.inject);
 
         let eth_api = extensions
             .read()
@@ -71,6 +73,21 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for BlockCacheMiddlew
             .expect("Cache extension not found");
 
         let metrics = get_rpc_metrics(extensions).await;
+
+        // used by recent blocks (block range: finalized ~ latest), it should be a short-term cache.
+        let recent_cache = {
+            let size = match method.block_cache {
+                Some(BlockCacheParams { recent_size, .. }) => recent_size.unwrap_or(cache.config.default_recent_size),
+                None => cache.config.default_recent_size,
+            };
+            let ttl_seconds = match &method.block_cache {
+                Some(params) => {
+                    params.recent_ttl_seconds(cache.config.ttl_unit_seconds, cache.config.default_recent_ttl_units)
+                }
+                None => cache.config.default_recent_ttl_seconds(),
+            };
+            Cache::new(NonZeroUsize::new(size)?, ttl_seconds.map(Duration::from_secs))
+        };
 
         // used by finalized blocks
         let finalized_cache = {
@@ -95,26 +112,11 @@ impl MiddlewareBuilder<RpcMethod, CallRequest, CallResult> for BlockCacheMiddlew
             Cache::new(NonZeroUsize::new(size)?, ttl_seconds.map(Duration::from_secs))
         };
 
-        // used by recent blocks (block range: finalized ~ latest), it should be a short-term cache.
-        let recent_cache = {
-            let size = match method.block_cache {
-                Some(BlockCacheParams { recent_size, .. }) => recent_size.unwrap_or(cache.config.default_recent_size),
-                None => cache.config.default_recent_size,
-            };
-            let ttl_seconds = match &method.block_cache {
-                Some(params) => {
-                    params.recent_ttl_seconds(cache.config.ttl_unit_seconds, cache.config.default_recent_ttl_units)
-                }
-                None => cache.config.default_recent_ttl_seconds(),
-            };
-            Cache::new(NonZeroUsize::new(size)?, ttl_seconds.map(Duration::from_secs))
-        };
-
         Some(Box::new(BlockCacheMiddleware::new(
             eth_api,
             index,
-            finalized_cache,
             recent_cache,
+            finalized_cache,
             metrics,
         )))
     }
@@ -144,7 +146,7 @@ impl Middleware<CallRequest, CallResult> for BlockCacheMiddleware {
     }
 }
 
-#[derive(PartialEq, Default)]
+#[derive(PartialEq, Debug, Default)]
 enum CacheAction {
     Bypass,
     Recent,
@@ -160,7 +162,7 @@ impl CacheAction {
 
 struct BlockCacheMiddlewareImpl {
     api: Arc<EthApi>,
-    index: usize,
+    index: Option<usize>,
 
     cache_action: CacheAction,
     recent_cache: Cache<Blake2b512>,
@@ -183,8 +185,9 @@ impl BlockCacheMiddlewareImpl {
         }
     }
 
-    async fn replace_block_tag(&mut self, request: &CallRequest) -> Option<JsonValue> {
-        let param = request.params.get(self.index)?;
+    async fn replace_block_tag(&mut self, request: &CallRequest, param_index: usize) -> Option<JsonValue> {
+        let param = request.params.get(param_index)?;
+
         if !param.is_string() {
             return None;
         }
@@ -239,15 +242,18 @@ impl BlockCacheMiddlewareImpl {
     }
 
     async fn replace(&mut self, mut request: CallRequest) -> CallRequest {
-        let changed_param = self.replace_block_tag(&request).await;
-        if let Some(param) = changed_param {
-            tracing::trace!(
-                "Replacing params {:?} updated with {:?}",
-                request.params,
-                (self.index, &param),
-            );
-            request.params.remove(self.index);
-            request.params.insert(self.index, param);
+        if let Some(index) = self.index {
+            let changed_param = self.replace_block_tag(&request, index).await;
+            if let Some(param) = changed_param {
+                tracing::trace!(
+                    target: TRACING_TARGET,
+                    "Replacing params {:?} updated with {:?}",
+                    request.params,
+                    (index, &param),
+                );
+                request.params.remove(index);
+                request.params.insert(index, param);
+            }
         }
         request
     }
@@ -259,6 +265,8 @@ impl BlockCacheMiddlewareImpl {
         next: NextFn<CallRequest, CallResult>,
     ) -> CallResult {
         let request = self.replace(request).await;
+        tracing::trace!(target: TRACING_TARGET, "Request: {:?}", request);
+        tracing::trace!(target: TRACING_TARGET, "CacheAction: {:?}", self.cache_action);
 
         let metrics = self.metrics.clone();
 
@@ -377,7 +385,7 @@ mod tests {
 
     async fn create_block_cache_middleware(params: Vec<MethodParam>) -> (BlockCacheMiddleware, ExecutionContext) {
         let (context, api) = create_client().await;
-        let index = params.iter().position(|p| p.ty == "BlockTag").unwrap();
+        let index = params.iter().position(|p| p.ty == "BlockTag");
         let finalized_cache = Cache::new(NonZeroUsize::new(1).unwrap(), Some(Duration::from_millis(100)));
         let recent_cache = Cache::new(NonZeroUsize::new(1).unwrap(), Some(Duration::from_millis(100)));
 

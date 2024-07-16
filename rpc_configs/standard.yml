@@ -4,6 +4,7 @@ methods:
   - method: eth_chainId
     block_cache:
       size: 1
+      ttl_units: 0
   - method: eth_syncing
   - method: eth_coinbase
   - method: eth_accounts
