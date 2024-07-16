@@ -196,8 +196,9 @@ impl BlockCacheMiddlewareImpl {
             // "earliest" is always going to be genesis, so we don't need to replace it with
             // specified block number
             "earliest" => None,
-            // Actually, "safe" block should be cached, but we need to add a new background task to
-            // poll and get the current safe block, so we won't cache it yet.
+            // Theoretically, the "safe" block could be cached, but to do this, we'd need to add a
+            // new background polling task to get the current "safe" block, so we won't implement it
+            // currently.
             "pending" | "safe" => {
                 self.cache_action = CacheAction::Bypass;
                 None
