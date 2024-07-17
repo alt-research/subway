@@ -252,8 +252,7 @@ impl BlockCacheMiddlewareImpl {
                     request.params,
                     (index, &param),
                 );
-                request.params.remove(index);
-                request.params.insert(index, param);
+                request.params[index] = param;
             }
         }
         request
@@ -269,7 +268,7 @@ impl BlockCacheMiddlewareImpl {
         tracing::trace!(target: TRACING_TARGET, "Request: {:?}", request);
         tracing::trace!(target: TRACING_TARGET, "CacheAction: {:?}", self.cache_action);
 
-        let metrics = self.metrics.clone();
+        let metrics = &self.metrics;
 
         match self.cache_action {
             CacheAction::Bypass => {
