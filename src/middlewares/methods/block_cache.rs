@@ -259,7 +259,7 @@ impl BlockCacheMiddlewareImpl {
     }
 
     async fn call(
-        &mut self,
+        mut self,
         request: CallRequest,
         context: TypeRegistry,
         next: NextFn<CallRequest, CallResult>,
