@@ -73,7 +73,7 @@ pub fn setup_telemetry(options: &TelemetryConfig) -> Result<Option<Tracer>, Trac
 
             let resource = Resource::from_schema_url(
                 [
-                    KeyValue::new(semconv::resource::SERVICE_NAME, env!("CARGO_PKG_NAME")),
+                    KeyValue::new(semconv::resource::SERVICE_NAME, service_name),
                     KeyValue::new(
                         semconv::resource::SERVICE_VERSION,
                         crate::build_info::GIT_VERSION.unwrap_or(env!("CARGO_PKG_VERSION")),
