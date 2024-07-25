@@ -38,6 +38,7 @@ pub struct Rule {
     #[serde(default = "default_jitter_up_to_millis")]
     pub jitter_up_to_millis: u64,
     /// Return the responses with delay instead of returning a rate limit jsonrpc error directly if true.
+    #[serde(default)]
     pub blocking: bool,
 }
 

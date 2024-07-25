@@ -136,7 +136,8 @@ mod tests {
             limiter,
             Jitter::up_to(Duration::from_millis(10)),
             Default::default(),
-        );
+        )
+        .blocking(true);
 
         let batch = |service: GlobalRateLimit<MockService>, count: usize, delay| async move {
             tokio::time::sleep(Duration::from_millis(delay)).await;
