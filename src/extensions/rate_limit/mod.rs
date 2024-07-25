@@ -37,13 +37,8 @@ pub struct Rule {
     // e.g. if jitter_up_to_millis is 1000, then additional delay of random(0, 1000) milliseconds will be added
     #[serde(default = "default_jitter_up_to_millis")]
     pub jitter_up_to_millis: u64,
-    /// Return a rate limit jsonrpc error directly if true.
-    #[serde(default = "default_non_blocking")]
-    pub non_blocking: bool,
-}
-
-fn default_non_blocking() -> bool {
-    true
+    /// Return the responses with delay instead of returning a rate limit jsonrpc error directly if true.
+    pub blocking: bool,
 }
 
 fn default_period_secs() -> u64 {
@@ -59,11 +54,11 @@ pub struct RateLimitBuilder {
 
     ip_jitter: Option<Jitter>,
     ip_limiter: Option<Arc<DefaultKeyedRateLimiter<String>>>,
-    ip_non_blocking: bool,
+    ip_blocking: bool,
 
     global_jitter: Option<Jitter>,
     global_limiter: Option<Arc<DefaultDirectRateLimiter>>,
-    global_non_blocking: bool,
+    global_blocking: bool,
 }
 
 #[async_trait::async_trait]
@@ -89,24 +84,24 @@ impl RateLimitBuilder {
 
         let mut ip_limiter = None;
         let mut ip_jitter = None;
-        let mut ip_non_blocking = false;
+        let mut ip_blocking = false;
         if let Some(ref rule) = config.ip {
             let burst = NonZeroU32::new(rule.burst).unwrap();
             let quota = build_quota(burst, Duration::from_secs(rule.period_secs));
             ip_limiter = Some(Arc::new(RateLimiter::keyed(quota)));
             ip_jitter = Some(Jitter::up_to(Duration::from_millis(rule.jitter_up_to_millis)));
-            ip_non_blocking = rule.non_blocking;
+            ip_blocking = rule.blocking;
         }
 
         let mut global_limiter = None;
         let mut global_jitter = None;
-        let mut global_non_blocking = false;
+        let mut global_blocking = false;
         if let Some(ref rule) = config.global {
             let burst = NonZeroU32::new(rule.burst).unwrap();
             let quota = build_quota(burst, Duration::from_secs(rule.period_secs));
             global_limiter = Some(Arc::new(DefaultDirectRateLimiter::direct(quota)));
             global_jitter = Some(Jitter::up_to(Duration::from_millis(rule.jitter_up_to_millis)));
-            global_non_blocking = rule.non_blocking;
+            global_blocking = rule.blocking;
         }
 
         Self {
@@ -114,11 +109,11 @@ impl RateLimitBuilder {
 
             ip_jitter,
             ip_limiter,
-            ip_non_blocking,
+            ip_blocking,
 
             global_jitter,
             global_limiter,
-            global_non_blocking,
+            global_blocking,
         }
     }
 
@@ -127,7 +122,7 @@ impl RateLimitBuilder {
             let burst = NonZeroU32::new(rule.burst).unwrap();
             let period = Duration::from_secs(rule.period_secs);
             let jitter = Jitter::up_to(Duration::from_millis(rule.jitter_up_to_millis));
-            Some(ConnectionRateLimitLayer::new(burst, period, jitter, method_weights).non_blocking(rule.non_blocking))
+            Some(ConnectionRateLimitLayer::new(burst, period, jitter, method_weights).blocking(rule.blocking))
         } else {
             None
         }
@@ -141,7 +136,7 @@ impl RateLimitBuilder {
                 self.ip_jitter.unwrap_or_default(),
                 method_weights,
             )
-            .non_blocking(self.ip_non_blocking)
+            .blocking(self.ip_blocking)
         })
     }
 
@@ -152,7 +147,7 @@ impl RateLimitBuilder {
                 self.global_jitter.unwrap_or_default(),
                 method_weights,
             )
-            .non_blocking(self.global_non_blocking)
+            .blocking(self.global_blocking)
         })
     }
 

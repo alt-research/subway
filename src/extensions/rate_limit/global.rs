@@ -13,7 +13,7 @@ pub struct GlobalRateLimitLayer {
     limiter: Arc<DefaultDirectRateLimiter>,
     jitter: Jitter,
     method_weights: MethodWeights,
-    non_blocking: bool,
+    blocking: bool,
 }
 
 impl GlobalRateLimitLayer {
@@ -22,12 +22,12 @@ impl GlobalRateLimitLayer {
             limiter,
             jitter,
             method_weights,
-            non_blocking: false,
+            blocking: false,
         }
     }
 
-    pub fn non_blocking(mut self, non_blocking: bool) -> Self {
-        self.non_blocking = non_blocking;
+    pub fn blocking(mut self, blocking: bool) -> Self {
+        self.blocking = blocking;
         self
     }
 }
@@ -37,7 +37,7 @@ impl<S> tower::Layer<S> for GlobalRateLimitLayer {
 
     fn layer(&self, service: S) -> Self::Service {
         GlobalRateLimit::new(service, self.limiter.clone(), self.jitter, self.method_weights.clone())
-            .non_blocking(self.non_blocking)
+            .blocking(self.blocking)
     }
 }
 
@@ -47,7 +47,7 @@ pub struct GlobalRateLimit<S> {
     limiter: Arc<DefaultDirectRateLimiter>,
     jitter: Jitter,
     method_weights: MethodWeights,
-    non_blocking: bool,
+    blocking: bool,
 }
 
 impl<S> GlobalRateLimit<S> {
@@ -62,12 +62,12 @@ impl<S> GlobalRateLimit<S> {
             limiter,
             jitter,
             method_weights,
-            non_blocking: false,
+            blocking: false,
         }
     }
 
-    pub fn non_blocking(mut self, non_blocking: bool) -> Self {
-        self.non_blocking = non_blocking;
+    pub fn blocking(mut self, blocking: bool) -> Self {
+        self.blocking = blocking;
         self
     }
 }
@@ -83,22 +83,20 @@ where
         let service = self.service.clone();
         let limiter = self.limiter.clone();
         let weight = self.method_weights.get(req.method_name());
-        let non_blocking = self.non_blocking;
+        let blocking = self.blocking;
 
         async move {
             if let Some(n) = NonZeroU32::new(weight) {
-                if non_blocking {
-                    match limiter.check_n(n).expect("check_n have been done during init") {
-                        Ok(_) => {}
-                        Err(_negative) => {
-                            return MethodResponse::error(req.id, errors::reached_rate_limit());
-                        }
-                    }
-                } else {
+                if blocking {
                     limiter
                         .until_n_ready_with_jitter(n, jitter)
                         .await
                         .expect("check_n have been done during init");
+                } else {
+                    match limiter.check_n(n).expect("check_n have been done during init") {
+                        Ok(_) => {}
+                        Err(_) => return MethodResponse::error(req.id, errors::reached_rate_limit()),
+                    }
                 }
             }
             service.call(req).await
