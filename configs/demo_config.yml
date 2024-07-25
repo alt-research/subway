@@ -33,15 +33,15 @@ extensions:
 #      burst: 10
 #      period_secs: 10
 #      # default: true
-#      no_blocking: true
+#      non_blocking: true
 #    ip: # 20 RPC requests per 10 seconds per ip
 #      burst: 2
 #      period_secs: 10
-#      no_blocking: true
+#      non_blocking: true
 #    global: # 40 RPC requests per 10 seconds for global request
 #      burst: 1
 #      period_secs: 10
-#      no_blocking: true
+#      non_blocking: true
   whitelist:
     eth_call:
       # allow 0x01 to create contract.

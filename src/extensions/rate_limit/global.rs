@@ -13,7 +13,7 @@ pub struct GlobalRateLimitLayer {
     limiter: Arc<DefaultDirectRateLimiter>,
     jitter: Jitter,
     method_weights: MethodWeights,
-    no_blocking: bool,
+    non_blocking: bool,
 }
 
 impl GlobalRateLimitLayer {
@@ -22,12 +22,12 @@ impl GlobalRateLimitLayer {
             limiter,
             jitter,
             method_weights,
-            no_blocking: false,
+            non_blocking: false,
         }
     }
 
-    pub fn no_blocking(mut self, no_blocking: bool) -> Self {
-        self.no_blocking = no_blocking;
+    pub fn non_blocking(mut self, non_blocking: bool) -> Self {
+        self.non_blocking = non_blocking;
         self
     }
 }
@@ -37,7 +37,7 @@ impl<S> tower::Layer<S> for GlobalRateLimitLayer {
 
     fn layer(&self, service: S) -> Self::Service {
         GlobalRateLimit::new(service, self.limiter.clone(), self.jitter, self.method_weights.clone())
-            .no_blocking(self.no_blocking)
+            .non_blocking(self.non_blocking)
     }
 }
 
@@ -47,7 +47,7 @@ pub struct GlobalRateLimit<S> {
     limiter: Arc<DefaultDirectRateLimiter>,
     jitter: Jitter,
     method_weights: MethodWeights,
-    no_blocking: bool,
+    non_blocking: bool,
 }
 
 impl<S> GlobalRateLimit<S> {
@@ -62,12 +62,12 @@ impl<S> GlobalRateLimit<S> {
             limiter,
             jitter,
             method_weights,
-            no_blocking: false,
+            non_blocking: false,
         }
     }
 
-    pub fn no_blocking(mut self, no_blocking: bool) -> Self {
-        self.no_blocking = no_blocking;
+    pub fn non_blocking(mut self, non_blocking: bool) -> Self {
+        self.non_blocking = non_blocking;
         self
     }
 }
@@ -83,11 +83,11 @@ where
         let service = self.service.clone();
         let limiter = self.limiter.clone();
         let weight = self.method_weights.get(req.method_name());
-        let no_blocking = self.no_blocking;
+        let non_blocking = self.non_blocking;
 
         async move {
             if let Some(n) = NonZeroU32::new(weight) {
-                if no_blocking {
+                if non_blocking {
                     match limiter.check_n(n).expect("check_n have been done during init") {
                         Ok(_) => {}
                         Err(_negative) => {

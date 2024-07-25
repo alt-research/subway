@@ -39,7 +39,7 @@ pub struct Rule {
     pub jitter_up_to_millis: u64,
     /// Return a rate limit jsonrpc error directly if true.
     #[serde(default = "default_no_blocking")]
-    pub no_blocking: bool,
+    pub non_blocking: bool,
 }
 
 fn default_no_blocking() -> bool {
@@ -96,7 +96,7 @@ impl RateLimitBuilder {
             let quota = build_quota(burst, Duration::from_secs(rule.period_secs));
             ip_limiter = Some(Arc::new(RateLimiter::keyed(quota)));
             ip_jitter = Some(Jitter::up_to(Duration::from_millis(rule.jitter_up_to_millis)));
-            ip_no_blocking = rule.no_blocking;
+            ip_no_blocking = rule.non_blocking;
         }
 
         let mut global_limiter = None;
@@ -107,7 +107,7 @@ impl RateLimitBuilder {
             let quota = build_quota(burst, Duration::from_secs(rule.period_secs));
             global_limiter = Some(Arc::new(DefaultDirectRateLimiter::direct(quota)));
             global_jitter = Some(Jitter::up_to(Duration::from_millis(rule.jitter_up_to_millis)));
-            global_no_blocking = rule.no_blocking;
+            global_no_blocking = rule.non_blocking;
         }
 
         Self {
@@ -128,7 +128,7 @@ impl RateLimitBuilder {
             let burst = NonZeroU32::new(rule.burst).unwrap();
             let period = Duration::from_secs(rule.period_secs);
             let jitter = Jitter::up_to(Duration::from_millis(rule.jitter_up_to_millis));
-            Some(ConnectionRateLimitLayer::new(burst, period, jitter, method_weights).no_blocking(rule.no_blocking))
+            Some(ConnectionRateLimitLayer::new(burst, period, jitter, method_weights).non_blocking(rule.non_blocking))
         } else {
             None
         }
@@ -142,7 +142,7 @@ impl RateLimitBuilder {
                 self.ip_jitter.unwrap_or_default(),
                 method_weights,
             )
-            .no_blocking(self.ip_no_blocking)
+            .non_blocking(self.ip_no_blocking)
         })
     }
 
@@ -153,7 +153,7 @@ impl RateLimitBuilder {
                 self.global_jitter.unwrap_or_default(),
                 method_weights,
             )
-            .no_blocking(self.global_no_blocking)
+            .non_blocking(self.global_no_blocking)
         })
     }
 
