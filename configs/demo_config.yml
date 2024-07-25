@@ -32,12 +32,16 @@ extensions:
     connection: # 10 RPC requests per 10 second per connection
       burst: 10
       period_secs: 10
+      # default: true
+      no_blocking: true
     ip: # 20 RPC requests per 10 seconds per ip
-      burst: 20
+      burst: 2
       period_secs: 10
+      no_blocking: true
     global: # 40 RPC requests per 10 seconds for global request
-      burst: 40
+      burst: 1
       period_secs: 10
+      no_blocking: true
   whitelist:
     eth_call:
       # allow 0x01 to create contract.

@@ -1,4 +1,5 @@
 use crate::extensions::rate_limit::MethodWeights;
+use crate::utils::errors;
 use futures::{future::BoxFuture, FutureExt};
 use governor::{DefaultDirectRateLimiter, Jitter, RateLimiter};
 use jsonrpsee::{
@@ -13,6 +14,7 @@ pub struct ConnectionRateLimitLayer {
     period: Duration,
     jitter: Jitter,
     method_weights: MethodWeights,
+    no_blocking: bool,
 }
 
 impl ConnectionRateLimitLayer {
@@ -22,7 +24,13 @@ impl ConnectionRateLimitLayer {
             period,
             jitter,
             method_weights,
+            no_blocking: false,
         }
+    }
+
+    pub fn no_blocking(mut self, no_blocking: bool) -> Self {
+        self.no_blocking = no_blocking;
+        self
     }
 }
 
@@ -37,6 +45,7 @@ impl<S> tower::Layer<S> for ConnectionRateLimitLayer {
             self.jitter,
             self.method_weights.clone(),
         )
+        .no_blocking(self.no_blocking)
     }
 }
 
@@ -46,6 +55,7 @@ pub struct ConnectionRateLimit<S> {
     limiter: Arc<DefaultDirectRateLimiter>,
     jitter: Jitter,
     method_weights: MethodWeights,
+    no_blocking: bool,
 }
 
 impl<S> ConnectionRateLimit<S> {
@@ -53,11 +63,17 @@ impl<S> ConnectionRateLimit<S> {
         let quota = super::build_quota(burst, period);
         let limiter = Arc::new(RateLimiter::direct(quota));
         Self {
+            no_blocking: false,
             service,
             limiter,
             jitter,
             method_weights,
         }
+    }
+
+    pub fn no_blocking(mut self, no_blocking: bool) -> Self {
+        self.no_blocking = no_blocking;
+        self
     }
 }
 
@@ -72,13 +88,23 @@ where
         let service = self.service.clone();
         let limiter = self.limiter.clone();
         let weight = self.method_weights.get(req.method_name());
+        let no_blocking = self.no_blocking;
 
         async move {
             if let Some(n) = NonZeroU32::new(weight) {
-                limiter
-                    .until_n_ready_with_jitter(n, jitter)
-                    .await
-                    .expect("check_n have been done during init");
+                if no_blocking {
+                    match limiter.check_n(n).expect("check_n have been done during init") {
+                        Ok(_) => {}
+                        Err(_negative) => {
+                            return MethodResponse::error(req.id, errors::rate_limit("rate limit exceeded"));
+                        }
+                    }
+                } else {
+                    limiter
+                        .until_n_ready_with_jitter(n, jitter)
+                        .await
+                        .expect("check_n have been done during init");
+                }
             }
             service.call(req).await
         }
