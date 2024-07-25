@@ -83,12 +83,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-    use governor::RateLimiter;
     use super::*;
     use crate::extensions::rate_limit::build_quota;
+    use governor::RateLimiter;
     use jsonrpsee::types::Id;
     use jsonrpsee::ResponsePayload;
+    use std::time::Duration;
 
     #[derive(Clone)]
     struct MockService;
