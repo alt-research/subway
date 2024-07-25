@@ -111,7 +111,7 @@ where
                     {
                         Ok(_) => {}
                         Err(_negative) => {
-                            return MethodResponse::error(req.id, errors::rate_limit());
+                            return MethodResponse::error(req.id, errors::reached_rate_limit());
                         }
                     }
                 } else {

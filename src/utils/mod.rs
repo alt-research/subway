@@ -29,7 +29,7 @@ pub mod errors {
         )
     }
 
-    pub fn rate_limit() -> ErrorObjectOwned {
+    pub fn reached_rate_limit() -> ErrorObjectOwned {
         ErrorObjectOwned::owned::<String>(CALL_EXECUTION_FAILED_CODE, "Reached rate limit", None)
     }
 
