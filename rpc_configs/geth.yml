@@ -352,24 +352,24 @@ methods:
 
   # Txpool namespace (Geth-specified)
   - method: txpool_content
-    rate_limit_weight: 1000
+    rate_limit_weight: 800
     block_cache:
       size: 1
       ttl_seconds: 3
   - method: txpool_contentFrom
-    rate_limit_weight: 1000
+    rate_limit_weight: 800
     block_cache:
       ttl_seconds: 3
     params:
       - name: Address
         ty: Bytes
   - method: txpool_inspect
-    rate_limit_weight: 1000
+    rate_limit_weight: 800
     block_cache:
       size: 1
       ttl_seconds: 3
   - method: txpool_status
-    rate_limit_weight: 1000
+    rate_limit_weight: 800
     block_cache:
       size: 1
       ttl_seconds: 3
@@ -395,7 +395,7 @@ methods:
 subscriptions:
   - subscribe:
       method: eth_subscribe
-      rate_limit_weight: 10
+      rate_limit_weight: 500
     unsubscribe:
       method: eth_unsubscribe
       rate_limit_weight: 10
