@@ -393,6 +393,10 @@ methods:
     rate_limit_weight: 15
 
 subscriptions:
-  - subscribe: eth_subscribe
-    unsubscribe: eth_unsubscribe
+  - subscribe:
+      method: eth_subscribe
+      rate_limit_weight: 10
+    unsubscribe:
+      method: eth_unsubscribe
+      rate_limit_weight: 10
     name: eth_subscription
