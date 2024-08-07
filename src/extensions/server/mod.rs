@@ -300,7 +300,7 @@ pub struct RandomEthereumIdProvider;
 
 impl IdProvider for RandomEthereumIdProvider {
     fn next_id(&self) -> SubscriptionId<'static> {
-        let random = rand::random::<u64>().to_be_bytes();
+        let random = rand::random::<u128>().to_le_bytes();
         const_hex::encode_prefixed(random).into()
     }
 }
