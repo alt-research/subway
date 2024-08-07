@@ -4443,6 +4443,7 @@ dependencies = [
  "chrono",
  "clap",
  "console-subscriber",
+ "const-hex",
  "const_format",
  "criterion",
  "enumflags2",
