@@ -63,9 +63,9 @@ pub struct ServerConfig {
     pub port: u16,
     pub listen_address: String,
     pub max_connections: u32,
-    #[serde(default = "default_req_resp_body_size")]
+    #[serde(default = "default_max_body_size")]
     pub max_request_body_size: u32,
-    #[serde(default = "default_req_resp_body_size")]
+    #[serde(default = "default_max_body_size")]
     pub max_response_body_size: u32,
     pub max_batch_size: Option<u32>,
     #[serde(default)]
@@ -80,7 +80,7 @@ fn default_request_timeout_seconds() -> u64 {
     120
 }
 
-fn default_req_resp_body_size() -> u32 {
+fn default_max_body_size() -> u32 {
     TEN_MB_SIZE_BYTES
 }
 
