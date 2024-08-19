@@ -1,4 +1,3 @@
-use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use crate::{
     config::{Config, MergeStrategy, MiddlewaresConfig, RpcDefinitions, RpcSubscription, RpcSubscriptionMethod},
     extensions::{
@@ -9,6 +8,7 @@ use crate::{
     },
     server,
 };
+use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 
 #[tokio::test]
 async fn upstream_error_propagate() {

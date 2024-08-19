@@ -2,9 +2,9 @@ use criterion::*;
 use futures::{future::join_all, stream::FuturesUnordered};
 use futures_util::FutureExt;
 use jsonrpsee::core::params::BatchRequestBuilder;
+use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use pprof::criterion::{Output, PProfProfiler};
 use std::{sync::Arc, time::Duration};
-use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use tokio::runtime::Runtime as TokioRuntime;
 
 mod rate_limit;
