@@ -26,6 +26,9 @@ extensions:
     max_connections: 2000
     max_batch_size: 10
     cors: all
+    # 100MB in bytes
+    max_request_body_size: 104857600
+    max_response_body_size: 104857600
   # these are for demo purpose only, please adjust to your needs.
   # It's recommend to use big `period_secs` to reduce CPU costs.
 #  rate_limit:
