@@ -224,18 +224,18 @@ pub async fn build(config: Config) -> anyhow::Result<SubwayServerHandle> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{
+        config::{MiddlewaresConfig, RpcDefinitions, RpcMethod},
+        extensions::{client::ClientConfig, server::ServerConfig, ExtensionsConfig},
+    };
+    use jsonrpsee::core::TEN_MB_SIZE_BYTES;
     use jsonrpsee::{
         core::{client::ClientT, params::BatchRequestBuilder},
         rpc_params,
         server::{ServerBuilder, ServerHandle},
         ws_client::{WsClient, WsClientBuilder},
         RpcModule,
-    };
-
-    use super::*;
-    use crate::{
-        config::{MiddlewaresConfig, RpcDefinitions, RpcMethod},
-        extensions::{client::ClientConfig, server::ServerConfig, ExtensionsConfig},
     };
 
     const TIMEOUT: &str = "call_timeout";
@@ -259,6 +259,8 @@ mod tests {
                     listen_address: "127.0.0.1".to_string(),
                     port,
                     max_connections: 1024,
+                    max_request_body_size: TEN_MB_SIZE_BYTES,
+                    max_response_body_size: TEN_MB_SIZE_BYTES,
                     max_batch_size,
                     request_timeout_seconds: request_timeout_seconds.unwrap_or(10),
                     http_methods: Vec::new(),

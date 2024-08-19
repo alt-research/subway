@@ -3,6 +3,7 @@ use std::{future::Future, net::SocketAddr, str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use futures::FutureExt;
 use http::header::HeaderValue;
+use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use jsonrpsee::{
     core::server::Methods,
     server::{
@@ -62,6 +63,10 @@ pub struct ServerConfig {
     pub port: u16,
     pub listen_address: String,
     pub max_connections: u32,
+    #[serde(default = "default_max_body_size")]
+    pub max_request_body_size: u32,
+    #[serde(default = "default_max_body_size")]
+    pub max_response_body_size: u32,
     pub max_batch_size: Option<u32>,
     #[serde(default)]
     pub http_methods: Vec<HttpMethodsConfig>,
@@ -73,6 +78,10 @@ pub struct ServerConfig {
 
 fn default_request_timeout_seconds() -> u64 {
     120
+}
+
+fn default_max_body_size() -> u32 {
+    TEN_MB_SIZE_BYTES
 }
 
 #[async_trait]
@@ -176,6 +185,8 @@ impl SubwayServerBuilder {
                 .set_batch_request_config(batch_request_config)
                 .max_connections(config.max_connections)
                 .set_id_provider(RandomEthereumIdProvider)
+                .max_request_body_size(config.max_request_body_size)
+                .max_response_body_size(config.max_response_body_size)
                 .to_service_builder(),
             rate_limit_builder,
             rpc_method_weights,

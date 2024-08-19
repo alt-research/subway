@@ -8,6 +8,7 @@ use crate::{
     },
     server,
 };
+use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 
 #[tokio::test]
 async fn upstream_error_propagate() {
@@ -36,6 +37,8 @@ async fn upstream_error_propagate() {
                 listen_address: "0.0.0.0".to_string(),
                 port: 0,
                 max_connections: 10,
+                max_request_body_size: TEN_MB_SIZE_BYTES,
+                max_response_body_size: TEN_MB_SIZE_BYTES,
                 max_batch_size: None,
                 request_timeout_seconds: 120,
                 http_methods: Vec::new(),
