@@ -1,3 +1,4 @@
+use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use serde_json::json;
 
 use crate::{
@@ -54,6 +55,8 @@ async fn merge_subscription_works() {
                 listen_address: "0.0.0.0".to_string(),
                 port: 0,
                 max_connections: 10,
+                max_request_body_size: TEN_MB_SIZE_BYTES,
+                max_response_body_size: TEN_MB_SIZE_BYTES,
                 max_batch_size: None,
                 request_timeout_seconds: 120,
                 http_methods: Vec::new(),

@@ -231,7 +231,7 @@ mod tests {
         ws_client::{WsClient, WsClientBuilder},
         RpcModule,
     };
-
+    use jsonrpsee::core::TEN_MB_SIZE_BYTES;
     use super::*;
     use crate::{
         config::{MiddlewaresConfig, RpcDefinitions, RpcMethod},
@@ -259,6 +259,8 @@ mod tests {
                     listen_address: "127.0.0.1".to_string(),
                     port,
                     max_connections: 1024,
+                    max_request_body_size: TEN_MB_SIZE_BYTES,
+                    max_response_body_size: TEN_MB_SIZE_BYTES,
                     max_batch_size,
                     request_timeout_seconds: request_timeout_seconds.unwrap_or(10),
                     http_methods: Vec::new(),

@@ -4,6 +4,7 @@ use futures_util::FutureExt;
 use jsonrpsee::core::params::BatchRequestBuilder;
 use pprof::criterion::{Output, PProfProfiler};
 use std::{sync::Arc, time::Duration};
+use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use tokio::runtime::Runtime as TokioRuntime;
 
 mod rate_limit;
@@ -225,6 +226,8 @@ fn config() -> Config {
                 listen_address: SUBWAY_SERVER_ADDR.to_string(),
                 port: SUBWAY_SERVER_PORT,
                 max_connections: 1024 * 1024,
+                max_request_body_size: TEN_MB_SIZE_BYTES,
+                max_response_body_size: TEN_MB_SIZE_BYTES,
                 max_batch_size: None,
                 request_timeout_seconds: 120,
                 http_methods: Vec::new(),
