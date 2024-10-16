@@ -1,6 +1,7 @@
 use crate::config::{RpcMethod, RpcSubscription};
 use std::{collections::BTreeMap, sync::Arc};
 
+/// The weights for every rpc request.
 #[derive(Clone, Debug, Default)]
 pub struct MethodWeights(Arc<BTreeMap<String, u32>>);
 
@@ -8,9 +9,7 @@ impl MethodWeights {
     pub fn get(&self, method: &str) -> u32 {
         self.0.get(method).cloned().unwrap_or(1)
     }
-}
 
-impl MethodWeights {
     pub fn from_config(methods: &[RpcMethod], subscriptions: &[RpcSubscription]) -> Self {
         let mut weights = BTreeMap::default();
         for method in methods {

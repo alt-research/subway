@@ -264,6 +264,11 @@ impl SubwayServerBuilder {
                                 .option_layer(
                                     rate_limit_builder
                                         .as_ref()
+                                        .and_then(|r| r.method_limits(rpc_method_weights.clone())),
+                                )
+                                .option_layer(
+                                    rate_limit_builder
+                                        .as_ref()
                                         .and_then(|r| r.connection_limit(rpc_method_weights.clone())),
                                 )
                                 .option_layer(call_metrics.as_ref().map(move |(a, b, c)| {

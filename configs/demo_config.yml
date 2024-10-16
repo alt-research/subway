@@ -35,6 +35,13 @@ extensions:
   # these are for demo purpose only, please adjust to your needs.
   # It's recommend to use big `period_secs` to reduce CPU costs.
 #  rate_limit:
+#    methods:
+#      bursts:
+#        # Alloc 300 burst to this method
+#        eth_sendRawTransaction: 300
+#        eth_call: 300
+#      period_secs: 10
+#      blocking: false # false by default
 #    connection: # 1000 weight per 10 second per connection
 #      burst: 1000
 #      period_secs: 10
