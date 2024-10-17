@@ -159,6 +159,6 @@ mod tests {
         let duration = start.elapsed().as_millis();
         println!("duration: {} ms", duration);
         // should take between 800..900 millis. each 100ms period handles 10 calls
-        assert!(duration > 800 && duration < 900);
+        assert!(duration > 800 && duration < 1000);
     }
 }

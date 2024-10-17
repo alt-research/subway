@@ -1,16 +1,19 @@
 use super::{Extension, ExtensionRegistry};
 use governor::{DefaultDirectRateLimiter, DefaultKeyedRateLimiter, Jitter, Quota, RateLimiter};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::{sync::Arc, time::Duration};
 
 mod connection;
 mod global;
 mod ip;
+mod method;
 mod weight;
 mod xff;
 
 use crate::extensions::rate_limit::global::GlobalRateLimitLayer;
+use crate::extensions::rate_limit::method::MethodRateLimitLayer;
 pub use connection::{ConnectionRateLimit, ConnectionRateLimitLayer};
 pub use ip::{IpRateLimit, IpRateLimitLayer};
 pub use weight::MethodWeights;
@@ -19,10 +22,31 @@ pub use xff::XFF;
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct RateLimitConfig {
     pub ip: Option<Rule>,
+    pub methods: Option<MethodsRule>,
     pub connection: Option<Rule>,
     pub global: Option<Rule>,
     #[serde(default)]
     pub use_xff: bool,
+}
+
+/// The rule for every method.
+///
+/// Only work for method rate limit.
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct MethodsRule {
+    /// The burst for every rpc.
+    pub bursts: HashMap<String, u32>,
+    /// Return the responses with delay instead of returning a rate limit jsonrpc error directly if true.
+    #[serde(default)]
+    pub blocking: bool,
+    /// period is the period of time in which the burst is allowed
+    #[serde(default = "default_period_secs")]
+    pub period_secs: u64,
+    // jitter_millis is the maximum amount of jitter to add to the rate limit
+    // this is to prevent a thundering herd problem https://en.wikipedia.org/wiki/Thundering_herd_problem
+    // e.g. if jitter_up_to_millis is 1000, then additional delay of random(0, 1000) milliseconds will be added
+    #[serde(default = "default_jitter_up_to_millis")]
+    pub jitter_up_to_millis: u64,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -60,6 +84,10 @@ pub struct RateLimitBuilder {
     global_jitter: Option<Jitter>,
     global_limiter: Option<Arc<DefaultDirectRateLimiter>>,
     global_blocking: bool,
+
+    method_jitter: Option<Jitter>,
+    method_blocking: bool,
+    method_limiters: HashMap<String, Arc<DefaultDirectRateLimiter>>,
 }
 
 #[async_trait::async_trait]
@@ -105,6 +133,20 @@ impl RateLimitBuilder {
             global_blocking = rule.blocking;
         }
 
+        let mut method_jitter = None;
+        let mut method_blocking = false;
+        let mut method_limiters = HashMap::new();
+        if let Some(ref methods_rule) = config.methods {
+            for (method, burst) in methods_rule.bursts.iter() {
+                let burst = NonZeroU32::new(*burst).unwrap();
+                let quota = build_quota(burst, Duration::from_secs(methods_rule.period_secs));
+                let method_limiter = Arc::new(DefaultDirectRateLimiter::direct(quota));
+                method_limiters.insert(method.clone(), method_limiter);
+            }
+            method_jitter = Some(Jitter::up_to(Duration::from_millis(methods_rule.jitter_up_to_millis)));
+            method_blocking = methods_rule.blocking;
+        }
+
         Self {
             config,
 
@@ -115,6 +157,10 @@ impl RateLimitBuilder {
             global_jitter,
             global_limiter,
             global_blocking,
+
+            method_jitter,
+            method_limiters,
+            method_blocking,
         }
     }
 
@@ -130,10 +176,10 @@ impl RateLimitBuilder {
     }
 
     pub fn ip_limit(&self, remote_ip: String, method_weights: MethodWeights) -> Option<IpRateLimitLayer> {
-        self.ip_limiter.as_ref().map(|ip_limiter| {
+        self.ip_limiter.as_ref().map(|limiter| {
             IpRateLimitLayer::new(
                 remote_ip,
-                ip_limiter.clone(),
+                limiter.clone(),
                 self.ip_jitter.unwrap_or_default(),
                 method_weights,
             )
@@ -141,14 +187,19 @@ impl RateLimitBuilder {
         })
     }
 
+    pub fn method_limits(&self, method_weights: MethodWeights) -> Option<MethodRateLimitLayer> {
+        MethodRateLimitLayer::new(
+            self.method_limiters.clone(),
+            self.method_jitter.unwrap_or_default(),
+            method_weights,
+        )
+        .map(|layer| layer.blocking(self.method_blocking))
+    }
+
     pub fn global_limit(&self, method_weights: MethodWeights) -> Option<GlobalRateLimitLayer> {
-        self.global_limiter.as_ref().map(|global_limiter| {
-            GlobalRateLimitLayer::new(
-                global_limiter.clone(),
-                self.global_jitter.unwrap_or_default(),
-                method_weights,
-            )
-            .blocking(self.global_blocking)
+        self.global_limiter.as_ref().map(|limiter| {
+            GlobalRateLimitLayer::new(limiter.clone(), self.global_jitter.unwrap_or_default(), method_weights)
+                .blocking(self.global_blocking)
         })
     }
 
